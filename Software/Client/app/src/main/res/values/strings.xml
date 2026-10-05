@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">LifeLine</string>
+    <string name="terminal_title">Terminal</string>
+    <string name="terminal_date_placeholder">YYYY/MM/DD HH:MM</string>
+    <string name="terminal_battery">Disconnected</string>
+    <string name="input_hint_name">Type message…</string>
+    <string name="send_button_label">&gt;</string>
+    <string name="bt_disconnected">Disconnected</string>
+    <string name="bt_connecting">Connecting…</string>
+    <string name="bt_connected">Connected</string>
+    <string name="select_bluetooth_device">Select Bluetooth Device</string>
+    <string name="no_paired_devices">No paired Bluetooth devices found</string>
+    <string name="sos_button_text">🚨 SOS</string>
+</resources>
