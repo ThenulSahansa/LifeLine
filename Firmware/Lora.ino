@@ -48,7 +48,7 @@ void checkSerialInput() {
     inputMessage.trim();
    
     if (inputMessage.length() > 0){
-      sendLoRaMessage(inputMessage);
+      sendLoRaMessage("LifeLine_Node_001: " + inputMessage);
     }
   }
 }
