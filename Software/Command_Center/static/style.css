@@ -168,27 +168,31 @@ main {
 }
 
 .panel-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-    /* Keep the status badge clear of the More Options and Close buttons. */
-    padding-right: 92px;
+    position: relative;
+    display: block;
+    min-height: 48px;
+    padding-right: 128px;
 }
 
 .panel-header h2 {
     margin: 4px 0 0;
     font-size: 19px;
+    line-height: 1.25;
 }
 
 .incident-badge {
+    position: absolute;
+    top: 2px;
+    right: 92px;
     border-radius: 999px;
     background: rgba(239, 68, 68, .15);
     color: #ff9a9a;
     border: 1px solid rgba(239, 68, 68, .25);
-    padding: 6px 9px;
+    padding: 7px 11px;
     font-size: 10px;
+    line-height: 1;
     font-weight: 900;
+    white-space: nowrap;
 }
 
 .alert-message {
@@ -436,18 +440,18 @@ main {
 /* Details panel actions / More Options */
 .panel-actions {
     position: absolute;
-    top: 16px;
-    right: 14px;
+    top: 14px;
+    right: 12px;
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
     z-index: 20;
 }
 
 .more-options-button,
 .close-button {
-    width: 34px;
-    height: 34px;
+    width: 32px;
+    height: 32px;
     border: 0;
     border-radius: 9px;
     background: transparent;
