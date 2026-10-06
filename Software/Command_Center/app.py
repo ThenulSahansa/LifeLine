@@ -2,6 +2,8 @@ from flask import Flask, jsonify, render_template
 import threading
 import time
 import re
+import json
+import os
 from datetime import datetime, timezone
 
 from lora import LoRa
@@ -12,20 +14,12 @@ app = Flask(__name__)
 nodes = {}
 nodes_lock = threading.Lock()
 
-# -------------------------------------------------------------------
-# Message format:
-# SOS: LifeLine_Node_001: 🌊 Flood | GPS: 6.799308,79.901005
-# RSSI: -34 dBm
-# SNR:  10.00 dB
-# -------------------------------------------------------------------
+# Persistent incident history. Each node keeps its previous SOS messages.
+HISTORY_FILE = os.path.join(os.path.dirname(__file__), "lifeline_history.json")
+MAX_HISTORY_PER_NODE = 100
 
-# Accept both formats used by LifeLine nodes:
-#   SOS: LifeLine_Node_001: 🌊 Flood | GPS: 6.799308,79.901005
-#   LifeLine_Node_001: SOS: thenul | GPS: 6.799317,79.900963
 NODE_RE = re.compile(r"\bLifeLine_Node_(?P<node_id>\d+)\b", re.IGNORECASE)
 
-# A complete LifeLine record. We deliberately require the complete GPS
-# coordinate so a truncated/corrupted packet can never update the map.
 RECORD_RE = re.compile(
     r"LifeLine_Node_(?P<node_id>\d+)\s*:\s*"
     r"(?:SOS\s*:\s*)?(?P<alert>.*?)\s*\|\s*"
@@ -34,7 +28,6 @@ RECORD_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
-# Also accept the older format: SOS: LifeLine_Node_001: Alert | GPS: ...
 OLD_RECORD_RE = re.compile(
     r"SOS\s*:\s*LifeLine_Node_(?P<node_id>\d+)\s*:\s*"
     r"(?P<alert>.*?)\s*\|\s*"
@@ -47,21 +40,68 @@ RSSI_RE = re.compile(r"RSSI:\s*(-?\d+(?:\.\d+)?)\s*dBm", re.IGNORECASE)
 SNR_RE = re.compile(r"SNR:\s*(-?\d+(?:\.\d+)?)\s*dB", re.IGNORECASE)
 
 
-def parse_lora_message(raw_message: str):
-    """Parse only a complete LifeLine record.
+def load_history():
+    """Load saved incident history after a Flask restart."""
+    if not os.path.exists(HISTORY_FILE):
+        return
 
-    If a bad packet contains pieces of two messages, we select the last
-    complete record rather than allowing a truncated GPS value to reach the map.
-    """
-    # Find all complete records. Choosing the last one handles a payload that
-    # accidentally contains the tail of an old record followed by a new one.
+    try:
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            saved = json.load(f)
+
+        if not isinstance(saved, dict):
+            return
+
+        for node_id, history in saved.items():
+            if not isinstance(history, list) or not history:
+                continue
+
+            cleaned = [item for item in history if isinstance(item, dict)]
+            if not cleaned:
+                continue
+
+            latest = dict(cleaned[-1])
+            latest["node_id"] = str(node_id)
+            latest["node_name"] = f"LifeLine_Node_{node_id}"
+            latest["history"] = cleaned[-MAX_HISTORY_PER_NODE:]
+            # Marked state is intentionally not persisted as active SOS state.
+            latest["marked"] = False
+            nodes[str(node_id)] = latest
+
+        print(f"[LifeLine] Loaded history for {len(nodes)} node(s).")
+    except Exception as exc:
+        print(f"[LifeLine] Could not load history: {exc}")
+
+
+def save_history():
+    """Persist the incident history atomically."""
+    data = {
+        node_id: node.get("history", [])[-MAX_HISTORY_PER_NODE:]
+        for node_id, node in nodes.items()
+    }
+
+    temp_file = HISTORY_FILE + ".tmp"
+    try:
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(temp_file, HISTORY_FILE)
+    except Exception as exc:
+        print(f"[LifeLine] Could not save history: {exc}")
+        try:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+        except OSError:
+            pass
+
+
+def parse_lora_message(raw_message: str):
+    """Parse only a complete LifeLine record."""
     matches = list(RECORD_RE.finditer(raw_message))
     matches += list(OLD_RECORD_RE.finditer(raw_message))
 
     if not matches:
         return None
 
-    # Sort by position in the received payload and use the final complete record.
     match = max(matches, key=lambda m: m.start())
 
     lat = float(match.group("lat"))
@@ -91,7 +131,6 @@ def parse_lora_message(raw_message: str):
 
 
 def handle_lora_message(raw_message: str):
-    """Parse and update the latest position for a node."""
     parsed = parse_lora_message(raw_message)
     if parsed is None:
         print(f"[LifeLine] Ignored unrecognised message: {raw_message!r}")
@@ -100,10 +139,25 @@ def handle_lora_message(raw_message: str):
     with nodes_lock:
         old = nodes.get(parsed["node_id"])
 
-        # Preserve the operator's Mark state when the same node sends
-        # another update. A new node starts unmarked.
-        parsed["marked"] = old["marked"] if old else False
+        # Every new valid SOS is a NEW incident that needs attention.
+        # Therefore a previously green/marked node becomes red again.
+        parsed["marked"] = False
+
+        # Preserve and extend the previous SOS history for this node.
+        history = list(old.get("history", [])) if old else []
+        history.append({
+            "alert": parsed["alert"],
+            "latitude": parsed["latitude"],
+            "longitude": parsed["longitude"],
+            "rssi": parsed["rssi"],
+            "snr": parsed["snr"],
+            "raw_message": parsed["raw_message"],
+            "received_at": parsed["received_at"],
+        })
+        parsed["history"] = history[-MAX_HISTORY_PER_NODE:]
+
         nodes[parsed["node_id"]] = parsed
+        save_history()
 
     print(
         f"[LifeLine] {parsed['node_id']} -> "
@@ -112,7 +166,6 @@ def handle_lora_message(raw_message: str):
 
 
 def lora_listener():
-    """Background LoRa receive loop."""
     try:
         radio = LoRa()
         radio.start_receive()
@@ -124,22 +177,6 @@ def lora_listener():
             if packet is not None:
                 message, rssi, snr = packet
 
-                # -------------------------------------------------------
-                # RAW PACKET DEBUG
-                # Print exactly what the SX1278 delivered BEFORE the
-                # Flask parser changes or appends anything.
-                # -------------------------------------------------------
-                raw_bytes = message.encode("utf-8", errors="replace")
-                print("\n========== RAW LORA PACKET ==========")
-                print(f"Length: {len(raw_bytes)} bytes")
-                print(f"Text : {message!r}")
-                print(f"Hex  : {raw_bytes.hex(" ")}")
-                print(f"RSSI : {rssi} dBm")
-                print(f"SNR  : {snr} dB")
-                print("=====================================\n")
-
-                # The LoRa driver already extracts RSSI/SNR. Append them
-                # if the sender's text does not contain them.
                 full_message = message
                 if "RSSI:" not in full_message.upper():
                     full_message += f"\nRSSI: {rssi} dBm"
@@ -188,9 +225,9 @@ def unmark_node(node_id):
         return jsonify(node)
 
 
-if __name__ == "__main__":
-    # Start the LoRa receiver independently of Flask request handling.
-    threading.Thread(target=lora_listener, daemon=True).start()
+load_history()
 
-    # Accessible from other computers on the disaster-relief-center LAN.
+
+if __name__ == "__main__":
+    threading.Thread(target=lora_listener, daemon=True).start()
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

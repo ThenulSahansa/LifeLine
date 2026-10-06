@@ -4,18 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LifeLine | Disaster Response Center</title>
-
-    <link
-        rel="stylesheet"
-        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        crossorigin=""
-    >
-    <link
-        rel="stylesheet"
-        href="{{ url_for('static', filename='style.css') }}"
-    >
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-
 <body>
     <header class="topbar">
         <div class="brand">
@@ -25,7 +16,6 @@
                 <div class="brand-subtitle">Disaster Response Network</div>
             </div>
         </div>
-
         <div class="system-status">
             <span class="status-dot"></span>
             <span>RECEIVER ONLINE</span>
@@ -73,6 +63,16 @@
                 </div>
             </div>
 
+            <div class="history-section">
+                <div class="history-heading">
+                    <span>PREVIOUS SOS MESSAGES</span>
+                    <span id="history-count">0</span>
+                </div>
+                <div id="history-list" class="history-list">
+                    <div class="history-empty">No previous messages.</div>
+                </div>
+            </div>
+
             <details class="raw-message">
                 <summary>View raw transmission</summary>
                 <pre id="detail-raw"></pre>
@@ -81,20 +81,15 @@
             <button id="mark-button" class="mark-button">Mark</button>
         </section>
 
-        <button id="panel-toggle" class="panel-toggle hidden">
-            Show details
-        </button>
+        <button id="panel-toggle" class="panel-toggle hidden">Show details</button>
 
         <div class="legend">
             <div><span class="legend-pin red"></span> Active SOS</div>
-            <div><span class="legend-pin green"></span> Marked</div>
+            <div><span class="legend-pin green"></span> Marked / handled</div>
         </div>
     </main>
 
-    <script
-        src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        crossorigin=""
-    ></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
