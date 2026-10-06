@@ -172,7 +172,8 @@ main {
     align-items: flex-start;
     justify-content: space-between;
     gap: 16px;
-    padding-right: 18px;
+    /* Keep the status badge clear of the More Options and Close buttons. */
+    padding-right: 92px;
 }
 
 .panel-header h2 {
@@ -439,7 +440,7 @@ main {
     right: 14px;
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 2px;
     z-index: 20;
 }
 
