@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LifeLine | Disaster Response Center</title>
+
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        crossorigin=""
+    >
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
+</head>
+
+<body>
+    <header class="topbar">
+        <div class="brand">
+            <div class="brand-mark">L</div>
+            <div>
+                <div class="brand-name">LifeLine</div>
+                <div class="brand-subtitle">Disaster Response Network</div>
+            </div>
+        </div>
+
+        <div class="system-status">
+            <span class="status-dot"></span>
+            <span>RECEIVER ONLINE</span>
+        </div>
+    </header>
+
+    <main>
+        <div id="map"></div>
+
+        <section class="map-overlay top-left">
+            <div class="eyebrow">LIVE INCIDENT MAP</div>
+            <h1>Emergency Locations</h1>
+            <div id="node-count">0 active nodes</div>
+        </section>
+
+        <section id="details-panel" class="details-panel hidden">
+            <button id="close-panel" class="close-button" aria-label="Close details">×</button>
+
+            <div class="panel-header">
+                <div>
+                    <div class="panel-label">SOS TRANSMISSION</div>
+                    <h2 id="detail-node">LifeLine_Node_---</h2>
+                </div>
+                <div id="detail-badge" class="incident-badge">SOS</div>
+            </div>
+
+            <div class="alert-message" id="detail-alert">Waiting for message...</div>
+
+            <div class="detail-grid">
+                <div class="detail-item">
+                    <span>GPS</span>
+                    <strong id="detail-gps">—</strong>
+                </div>
+                <div class="detail-item">
+                    <span>Signal</span>
+                    <strong id="detail-rssi">—</strong>
+                </div>
+                <div class="detail-item">
+                    <span>SNR</span>
+                    <strong id="detail-snr">—</strong>
+                </div>
+                <div class="detail-item">
+                    <span>Received</span>
+                    <strong id="detail-time">—</strong>
+                </div>
+            </div>
+
+            <details class="raw-message">
+                <summary>View raw transmission</summary>
+                <pre id="detail-raw"></pre>
+            </details>
+
+            <button id="mark-button" class="mark-button">Mark</button>
+        </section>
+
+        <button id="panel-toggle" class="panel-toggle hidden">
+            Show details
+        </button>
+
+        <div class="legend">
+            <div><span class="legend-pin red"></span> Active SOS</div>
+            <div><span class="legend-pin green"></span> Marked</div>
+        </div>
+    </main>
+
+    <script
+        src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        crossorigin=""
+    ></script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
