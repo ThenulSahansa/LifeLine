@@ -15,7 +15,7 @@ BluetoothSerial SerialBT;
 #define LED_PIN 2 // Standard onboard LED (Usually GPIO 2)
 
 #define LORA_FREQUENCY 433E6
-const char* BLUETOOTH_NAME = "LifeLine_Node_001";
+const char* BLUETOOTH_NAME = "LifeLine_Node_002";
 
 // =========================================================================
 // CUSTOM TRANSMISSION FUNCTION
@@ -48,7 +48,7 @@ void checkSerialInput() {
     inputMessage.trim();
    
     if (inputMessage.length() > 0){
-      sendLoRaMessage("LifeLine_Node_001: " + inputMessage);
+      sendLoRaMessage(String(BLUETOOTH_NAME) + ": " + inputMessage);
     }
   }
 }
