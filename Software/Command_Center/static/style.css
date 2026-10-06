@@ -440,7 +440,7 @@ main {
 /* Details panel actions / More Options */
 .panel-actions {
     position: absolute;
-    top: 14px;
+    top: 19px;
     right: 12px;
     display: flex;
     align-items: center;
@@ -450,6 +450,11 @@ main {
 
 .more-options-button,
 .close-button {
+    position: static;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
     width: 32px;
     height: 32px;
     border: 0;
@@ -469,7 +474,6 @@ main {
 
 .more-options-button {
     font-weight: 800;
-    padding-bottom: 6px;
 }
 
 .more-options-menu {
