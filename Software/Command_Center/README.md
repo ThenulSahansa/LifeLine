@@ -72,16 +72,20 @@ hostname -I
 
 All LifeLine LoRa nodes must use matching radio settings.
 
-## Wiring
+## Wiring Connections
 
-- VCC -> physical pin 1 (3.3 V)
-- GND -> physical pin 6
-- SCK -> physical pin 23 / GPIO11
-- MISO -> physical pin 21 / GPIO9
-- MOSI -> physical pin 19 / GPIO10
-- NSS/CS -> physical pin 24 / GPIO8 CE0
-- RST -> physical pin 22 / GPIO25
-- DIO0 -> physical pin 18 / GPIO24
+Connect the AI-Thinker Ra-02 SX1278 LoRa module to the Raspberry Pi by wiring the SPI and power pins directly (both operate on 3.3V logic):
+
+| RA-02 Pin | Function | Raspberry Pi Physical Pin | Raspberry Pi GPIO / Header Function |
+| :--- | :--- | :--- | :--- |
+| **VCC** | 3.3V Power | Pin 1 | 3.3V Power |
+| **GND** | Ground | Pin 6, 9, 14, 20, 25, 30, 34, or 39 | Ground |
+| **SCK** | SPI Clock | Pin 23 | GPIO 11 (SPI0 SCLK) |
+| **MISO** | SPI Data Out | Pin 21 | GPIO 9 (SPI0 MISO) |
+| **MOSI** | SPI Data In | Pin 19 | GPIO 10 (SPI0 MOSI) |
+| **NSS (CS)** | SPI Chip Select | Pin 24 | GPIO 8 (SPI0 CE0) |
+| **RST** | Reset | Pin 22 | GPIO 25 (General GPIO for Reset) |
+| **DIO0** | Interrupt | Pin 18 | GPIO 24 (Interrupt / Digital IO 0) |
 
 ## Map
 
