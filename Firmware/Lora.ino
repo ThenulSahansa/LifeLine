@@ -1,7 +1,6 @@
-#include "BluetoothSerial.h"
-#include <LoRa.h>
 #include <SPI.h>
-
+#include <LoRa.h>
+#include "BluetoothSerial.h"
 
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run make menuconfig to verify it
@@ -10,13 +9,14 @@
 BluetoothSerial SerialBT;
 
 // Pin Configurations
-#define SS 5
-#define RST 14
-#define DIO0 26
+#define SS      5    
+#define RST     14  
+#define DIO0    26  
 #define LED_PIN 2 // Standard onboard LED (Usually GPIO 2)
 
 #define LORA_FREQUENCY 433E6
-const char *BLUETOOTH_NAME = "LifeLine_Node_001";
+const char* BLUETOOTH_NAME = "LifeLine_Node_001";
+
 // =========================================================================
 // CUSTOM TRANSMISSION FUNCTION
 // Sends any custom string payload and instantly restores background receiving
@@ -42,12 +42,12 @@ void sendLoRaMessage(String message) {
 // Checks if the user typed text into the Bluetooth terminal
 // =========================================================================
 void checkSerialInput() {
-  // FIXED: Added missing parentheses around condition
   if (SerialBT.available()) {
-    // FIXED: Changed .read() to .readString() to catch entire words/sentences
-    String inputMessage = SerialBT.readString();
+    // FIXED: Swapped to readStringUntil to clean out app-specific line break fragments
+    String inputMessage = SerialBT.readStringUntil('\n');
     inputMessage.trim();
-    if (inputMessage.length() > 0) {
+   
+    if (inputMessage.length() > 0){
       sendLoRaMessage(inputMessage);
     }
   }
@@ -55,13 +55,11 @@ void checkSerialInput() {
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial)
-    ;
-
+  while (!Serial);
+ 
   SerialBT.begin(BLUETOOTH_NAME);
-  Serial.println(
-      "Bluetooth service started!"); // FIXED: Added missing semicolon
-
+  Serial.println("Bluetooth service started!");
+ 
   // Initialize Built-in LED pin
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
@@ -74,7 +72,7 @@ void setup() {
   // Force physical pins to proper initial states
   pinMode(SS, OUTPUT);
   pinMode(DIO0, INPUT);
-
+ 
   // Hardware reset sequence
   pinMode(RST, OUTPUT);
   digitalWrite(RST, LOW);
@@ -86,27 +84,26 @@ void setup() {
 
   if (!LoRa.begin(LORA_FREQUENCY)) {
     Serial.println("[CRITICAL] LoRa initialization failed!");
-    while (1)
-      ;
+    while (1);
   }
 
   // Stable default radio profiles
-  LoRa.setTxPower(17);
-  LoRa.setSpreadingFactor(7);
-  LoRa.setSignalBandwidth(125E3);
-  LoRa.setCodingRate4(5);
-
+  LoRa.setTxPower(17);            
+  LoRa.setSpreadingFactor(7);      
+  LoRa.setSignalBandwidth(125E3);  
+  LoRa.setCodingRate4(5);          
+ 
   // Start up continuous background receiving mode
   LoRa.receive();
 }
 
 void loop() {
-  // FIXED: Proactively check for outbound messages sent from the mobile phone
+  // 1. PROACTIVELY CHECK FOR OUTBOUND BLUETOOTH MESSAGES
   checkSerialInput();
 
-  // 1. NON-BLOCKING BACKGROUND RECEIVE CHECK
+  // 2. NON-BLOCKING BACKGROUND RECEIVE CHECK
   int packetSize = LoRa.parsePacket();
-
+ 
   if (packetSize) {
     // BLINK LED ON: Turn on immediately when data code is receiving
     digitalWrite(LED_PIN, HIGH);
@@ -116,13 +113,13 @@ void loop() {
       incomingMessage += (char)LoRa.read();
     }
 
-    // Print out what the other node sent you
+    // Print out what the other node sent you locally
     Serial.print("\n[SUCCESS] Received: ");
     Serial.println(incomingMessage);
-
+   
     // Push the text to the mobile phone app over Bluetooth
     SerialBT.println(incomingMessage);
-
+   
     Serial.print("[RSSI]: ");
     Serial.print(LoRa.packetRssi());
     Serial.println(" dBm");
@@ -132,5 +129,5 @@ void loop() {
     digitalWrite(LED_PIN, LOW);
   }
 
-  delay(20);
+  // FIXED: Removed the blocking delay(20); to allow maximum polling frequency
 }
