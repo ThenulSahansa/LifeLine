@@ -2,32 +2,52 @@
 #include <SPI.h>
 
 
-// CORRECTED PIN CONFIGURATION
-#define ss 5
-#define rst 14
-#define dio0 26 // Updated to match your physical wiring
+// Pin Configurations
+#define SS 5
+#define RST 14
+#define DIO0 26
+#define LED_PIN 2 // Standard onboard LED (Usually GPIO 2)
 
-#define LED_PIN 2 // Built-in LED on GPIO 2 (Safe from conflicts now!)
+#define LORA_FREQUENCY 433E6
 
-unsigned long lastSendTime = 0;
-const int sendInterval = 4000; // Sends a packet every 4 seconds
-int msgCount = 0;
-volatile bool packetReceived = false;
+// =========================================================================
+// CUSTOM TRANSMISSION FUNCTION
+// Sends any custom string payload and instantly restores background receiving
+// =========================================================================
+void sendLoRaMessage(String message) {
+  Serial.print("\n-> Sending Outbound Payload: ");
+  Serial.println(message);
 
-// BACKGROUND INTERRUPT RECEIVE
-void onReceive(int packetSize) {
-  if (packetSize == 0)
-    return;
+  // Package and broadcast the string data
+  LoRa.beginPacket();
+  LoRa.print(message);
+  LoRa.endPacket(); // Briefly switches radio to TX mode to push the data out
 
-  Serial.print("-> RECEIVED PACKET: ");
-  while (LoRa.available()) {
-    Serial.print((char)LoRa.read());
+  // Clear out underlying hardware register pipelines
+  LoRa.flush();
+
+  // CRITICAL: Instantly re-engage continuous background listening profile
+  LoRa.receive();
+}
+
+// =========================================================================
+// SERIAL INPUT ENGINE
+// Checks if the user typed text into the monitor terminal
+// =========================================================================
+void checkSerialInput() {
+  if (Serial.available() > 0) {
+    // Read the string from the serial buffer until a newline character is hit
+    String inputMessage = Serial.readStringUntil('\n');
+
+    // Clean up any hidden carriage return characters (\r) left over by terminal
+    // settings
+    inputMessage.trim();
+
+    // Only transmit if the user actually typed characters
+    if (inputMessage.length() > 0) {
+      sendLoRaMessage(inputMessage);
+    }
   }
-  Serial.print(" | RSSI: ");
-  Serial.println(LoRa.packetRssi());
-
-  digitalWrite(LED_PIN, HIGH); // Turn on built-in LED instantly
-  packetReceived = true;
 }
 
 void setup() {
@@ -35,61 +55,70 @@ void setup() {
   while (!Serial)
     ;
 
+  // Initialize Built-in LED pin
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
-  // Apply corrected pins
-  LoRa.setPins(ss, rst, dio0);
+  Serial.println("\n=============================================");
+  Serial.println("--- BOOTING LORA INTERACTIVE TERMINAL ---");
+  Serial.println("Type your message below and press Enter to send!");
+  Serial.println("=============================================");
 
-  // Forced hardware module reset
-  pinMode(rst, OUTPUT);
-  digitalWrite(rst, LOW);
+  // Force physical pins to proper initial states
+  pinMode(SS, OUTPUT);
+  pinMode(DIO0, INPUT);
+
+  // Hardware reset sequence
+  pinMode(RST, OUTPUT);
+  digitalWrite(RST, LOW);
   delay(20);
-  digitalWrite(rst, HIGH);
+  digitalWrite(RST, HIGH);
   delay(20);
 
-  if (!LoRa.begin(433E6)) {
-    Serial.println("❌ LoRa Begin Failed! Check SPI wiring.");
+  LoRa.setPins(SS, RST, DIO0);
+
+  if (!LoRa.begin(LORA_FREQUENCY)) {
+    Serial.println("[CRITICAL] LoRa initialization failed!");
     while (1)
       ;
   }
 
-  // Explicit standard matching radio settings
-  LoRa.setSignalBandwidth(125E3);
+  // Stable default radio profiles
+  LoRa.setTxPower(17);
   LoRa.setSpreadingFactor(7);
+  LoRa.setSignalBandwidth(125E3);
   LoRa.setCodingRate4(5);
-  LoRa.setSyncWord(0xF3);
 
-  // Enable background listening
-  LoRa.onReceive(onReceive);
+  // Start up continuous background receiving mode
   LoRa.receive();
-
-  Serial.println("📡 Node Ready on DIO0 -> GPIO 26!");
 }
 
 void loop() {
-  // Clear the LED blink smoothly outside the interrupt loop
-  if (packetReceived) {
+  // 1. NON-BLOCKING BACKGROUND RECEIVE CHECK
+  int packetSize = LoRa.parsePacket();
+
+  if (packetSize) {
+    // BLINK LED ON: Turn on immediately when data code is receiving
+    digitalWrite(LED_PIN, HIGH);
+
+    String incomingMessage = "";
+    while (LoRa.available()) {
+      incomingMessage += (char)LoRa.read();
+    }
+
+    // Print out what the other node sent you
+    Serial.print("\n[SUCCESS] Received: ");
+    Serial.println(incomingMessage);
+    Serial.print("[RSSI]: ");
+    Serial.print(LoRa.packetRssi());
+    Serial.println(" dBm");
+
+    // Short visible flash duration for the LED, then turn it off
     delay(100);
     digitalWrite(LED_PIN, LOW);
-    packetReceived = false;
   }
 
-  // Regular non-blocking transmission loop
-  if (millis() - lastSendTime > sendInterval) {
-    String message = "Hello from Node " + String(msgCount);
-
-    Serial.print("<- Sending: ");
-    Serial.println(message);
-
-    LoRa.beginPacket();
-    LoRa.print(message);
-    LoRa.endPacket(); // Send message over the air
-
-    msgCount++;
-    lastSendTime = millis();
-
-    // CRITICAL: Instantly reopen background listening mode
-    LoRa.receive();
-  }
+  // 2. ON-DEMAND SERIAL CHECK
+  // Instead of an automated timer, this only sends data when you ask it to
+  checkSerialInput();
 }
