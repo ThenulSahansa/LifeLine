@@ -32,7 +32,15 @@
         </section>
 
         <section id="details-panel" class="details-panel hidden">
-            <button id="close-panel" class="close-button" aria-label="Close details">×</button>
+            <div class="panel-actions">
+                <button id="more-options-button" class="more-options-button" aria-label="More options" title="More options">⋮</button>
+                <button id="close-panel" class="close-button" aria-label="Close details">×</button>
+            </div>
+
+            <div id="more-options-menu" class="more-options-menu hidden">
+                <button id="delete-pin-button" class="danger-option">Delete pin</button>
+                <button id="delete-history-button" class="danger-option">Delete SOS history</button>
+            </div>
 
             <div class="panel-header">
                 <div>

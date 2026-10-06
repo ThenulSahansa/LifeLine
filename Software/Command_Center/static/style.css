@@ -430,3 +430,77 @@ main {
     font-size: 11px;
     padding: 10px 2px;
 }
+
+
+/* Details panel actions / More Options */
+.panel-actions {
+    position: absolute;
+    top: 16px;
+    right: 14px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    z-index: 20;
+}
+
+.more-options-button,
+.close-button {
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.more-options-button:hover,
+.close-button:hover {
+    background: #243247;
+    color: #f8fafc;
+}
+
+.more-options-button {
+    font-weight: 800;
+    padding-bottom: 6px;
+}
+
+.more-options-menu {
+    position: absolute;
+    top: 54px;
+    right: 16px;
+    width: 190px;
+    padding: 6px;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    background: #172234;
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+    z-index: 30;
+}
+
+.more-options-menu.hidden {
+    display: none;
+}
+
+.more-options-menu button {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #f8fafc;
+    text-align: left;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.more-options-menu button:hover {
+    background: #263448;
+}
+
+.more-options-menu .danger-option:hover {
+    color: #fca5a5;
+}

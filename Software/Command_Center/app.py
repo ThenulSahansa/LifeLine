@@ -214,6 +214,31 @@ def mark_node(node_id):
         return jsonify(node)
 
 
+@app.delete("/api/nodes/<node_id>")
+def delete_node(node_id):
+    """Remove the current pin/node, but keep its saved SOS history."""
+    with nodes_lock:
+        node = nodes.pop(node_id, None)
+        if node is None:
+            return jsonify({"error": "Node not found"}), 404
+
+        save_history()
+        return jsonify({"success": True, "node_id": node_id})
+
+
+@app.delete("/api/nodes/<node_id>/history")
+def delete_node_history(node_id):
+    """Clear previous SOS history while keeping the current SOS/pin."""
+    with nodes_lock:
+        node = nodes.get(node_id)
+        if node is None:
+            return jsonify({"error": "Node not found"}), 404
+
+        node["history"] = []
+        save_history()
+        return jsonify(node)
+
+
 @app.post("/api/nodes/<node_id>/unmark")
 def unmark_node(node_id):
     with nodes_lock:

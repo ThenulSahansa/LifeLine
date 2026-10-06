@@ -15,6 +15,10 @@ let nodesCache = new Map();
 const detailsPanel = document.getElementById("details-panel");
 const panelToggle = document.getElementById("panel-toggle");
 const markButton = document.getElementById("mark-button");
+const moreOptionsButton = document.getElementById("more-options-button");
+const moreOptionsMenu = document.getElementById("more-options-menu");
+const deletePinButton = document.getElementById("delete-pin-button");
+const deleteHistoryButton = document.getElementById("delete-history-button");
 
 function markerIcon(marked) {
     const color = marked ? "#22c55e" : "#ef4444";
@@ -111,8 +115,12 @@ function showDetails(node) {
 }
 
 function hideDetails() {
+    // Clear the selection so the 1-second polling loop does not reopen
+    // the panel immediately after the user closes it.
+    selectedNodeId = null;
     detailsPanel.classList.add("hidden");
-    if (selectedNodeId) panelToggle.classList.remove("hidden");
+    moreOptionsMenu.classList.add("hidden");
+    panelToggle.classList.add("hidden");
 }
 
 function updateMarker(node) {
@@ -157,10 +165,92 @@ function updateMap(nodes) {
     document.getElementById("node-count").textContent =
         `${nodes.length} active node${nodes.length === 1 ? "" : "s"}`;
 
-    if (selectedNodeId && nodesCache.has(selectedNodeId)) {
+    // Only refresh an already-open details panel. Do not reopen a panel
+    // that the user explicitly closed.
+    if (selectedNodeId && nodesCache.has(selectedNodeId) && !detailsPanel.classList.contains("hidden")) {
         showDetails(nodesCache.get(selectedNodeId));
     }
 }
+
+async function deletePin() {
+    if (!selectedNodeId) return;
+
+    const nodeId = selectedNodeId;
+    const node = nodesCache.get(nodeId);
+    if (!node) return;
+
+    if (!confirm(`Delete the pin for ${node.node_name}?\n\nIts SOS history will be kept.`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}`, {
+            method: "DELETE"
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const marker = markers.get(nodeId);
+        if (marker) {
+            map.removeLayer(marker);
+            markers.delete(nodeId);
+        }
+        nodesCache.delete(nodeId);
+        selectedNodeId = null;
+        detailsPanel.classList.add("hidden");
+        moreOptionsMenu.classList.add("hidden");
+        panelToggle.classList.add("hidden");
+    } catch (error) {
+        console.error("Could not delete pin:", error);
+        alert("Could not delete the pin.");
+    }
+}
+
+async function deleteHistory() {
+    if (!selectedNodeId) return;
+
+    const nodeId = selectedNodeId;
+    const node = nodesCache.get(nodeId);
+    if (!node) return;
+
+    if (!confirm(`Delete all previous SOS history for ${node.node_name}?\n\nThe current SOS will remain.`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/history`, {
+            method: "DELETE"
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const updated = await response.json();
+        nodesCache.set(updated.node_id, updated);
+        showDetails(updated);
+    } catch (error) {
+        console.error("Could not delete SOS history:", error);
+        alert("Could not delete the SOS history.");
+    }
+}
+
+moreOptionsButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    moreOptionsMenu.classList.toggle("hidden");
+});
+
+deletePinButton.addEventListener("click", () => {
+    moreOptionsMenu.classList.add("hidden");
+    deletePin();
+});
+
+deleteHistoryButton.addEventListener("click", () => {
+    moreOptionsMenu.classList.add("hidden");
+    deleteHistory();
+});
+
+document.addEventListener("click", (event) => {
+    if (!moreOptionsMenu.contains(event.target) && event.target !== moreOptionsButton) {
+        moreOptionsMenu.classList.add("hidden");
+    }
+});
 
 async function pollNodes() {
     try {
@@ -176,7 +266,9 @@ async function pollNodes() {
 document.getElementById("close-panel").addEventListener("click", hideDetails);
 
 panelToggle.addEventListener("click", () => {
-    if (selectedNodeId && nodesCache.has(selectedNodeId)) {
+    // Only refresh an already-open details panel. Do not reopen a panel
+    // that the user explicitly closed.
+    if (selectedNodeId && nodesCache.has(selectedNodeId) && !detailsPanel.classList.contains("hidden")) {
         showDetails(nodesCache.get(selectedNodeId));
     }
 });
