@@ -6,9 +6,10 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000"
-    android:padding="16dp"
+    android:padding="12dp"
     tools:context=".MainActivity">
 
+    <!-- Permanent Header: [🔵 Life Line] [Connect Button] -->
     <TextView
         android:id="@+id/textView"
         android:layout_width="wrap_content"
@@ -17,56 +18,270 @@
         android:focusable="true"
         android:fontFamily="monospace"
         android:includeFontPadding="false"
-        android:text="@string/terminal_title"
-        android:textAppearance="@style/TextAppearance.AppCompat.Display1"
-        android:textColor="#00FF00"
-        android:textSize="28sp"
+        android:text="🔵 Life Line"
+        android:textColor="#FFB000"
+        android:textSize="18sp"
         android:textStyle="bold"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <TextView
+    <Button
         android:id="@+id/textView2"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:clickable="true"
-        android:focusable="true"
+        android:layout_height="32dp"
+        android:backgroundTint="#221500"
         android:fontFamily="monospace"
-        android:text="@string/bt_disconnected"
-        android:textColor="#00FF00"
-        android:textSize="14sp"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="0dp"
+        android:text="Connect"
+        android:textColor="#FFB000"
+        android:textSize="11sp"
+        android:textStyle="bold"
         app:layout_constraintBottom_toBottomOf="@id/textView"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="@id/textView" />
+        app:layout_constraintTop_toTopOf="@id/textView"
+        app:strokeColor="#FFB000"
+        app:strokeWidth="1dp" />
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/recyclerView"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_marginTop="12dp"
-        android:layout_marginBottom="12dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
+    <!-- Header Separator Line -->
+    <View
+        android:id="@+id/headerDivider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="8dp"
+        android:background="#332200"
         app:layout_constraintTop_toBottomOf="@id/textView" />
 
-    <Button
-        android:id="@+id/sosButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:backgroundTint="#330000"
-        android:fontFamily="monospace"
-        android:paddingHorizontal="32dp"
-        android:paddingVertical="16dp"
-        android:text="@string/sos_button_text"
-        android:textColor="#FF3333"
-        android:textSize="28sp"
-        android:textStyle="bold"
-        android:visibility="gone"
+    <!-- Main Content: SOS Emergency Dispatch Grid -->
+    <ScrollView
+        android:id="@+id/sosContainer"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/textView"
-        app:rippleColor="#FF0000" />
+        app:layout_constraintTop_toBottomOf="@id/headerDivider">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="4dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:gravity="center"
+                android:text="EMERGENCY DISPATCH"
+                android:textColor="#FF3333"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="16dp"
+                android:fontFamily="monospace"
+                android:gravity="center"
+                android:text="Tap an emergency profile to add details &amp; broadcast"
+                android:textColor="#AA4444"
+                android:textSize="12sp" />
+
+            <!-- Row 1: Medical & Fire -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/sosMedicalButton"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#2A0A0A"
+                    android:fontFamily="monospace"
+                    android:padding="16dp"
+                    android:text="❤️ MEDICAL\nCritical Injury"
+                    android:textColor="#FF6666"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:strokeColor="#FF3333"
+                    app:strokeWidth="1dp" />
+
+                <Button
+                    android:id="@+id/sosFireButton"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#2A0A0A"
+                    android:fontFamily="monospace"
+                    android:padding="16dp"
+                    android:text="🔥 FIRE\nStructure/Wildfire"
+                    android:textColor="#FF6666"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:strokeColor="#FF3333"
+                    app:strokeWidth="1dp" />
+            </LinearLayout>
+
+            <!-- Row 2: Security & Trapped -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/sosSecurityButton"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#2A0A0A"
+                    android:fontFamily="monospace"
+                    android:padding="16dp"
+                    android:text="🛡️ SECURITY\nHostile/Terrorist"
+                    android:textColor="#FF6666"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:strokeColor="#FF3333"
+                    app:strokeWidth="1dp" />
+
+                <Button
+                    android:id="@+id/sosTrappedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#2A0A0A"
+                    android:fontFamily="monospace"
+                    android:padding="16dp"
+                    android:text="💀 TRAPPED\nRubble / Rescue"
+                    android:textColor="#FF6666"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:strokeColor="#FF3333"
+                    app:strokeWidth="1dp" />
+            </LinearLayout>
+
+            <!-- Row 3: Hazmat & Flood -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/sosHazmatButton"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#2A0A0A"
+                    android:fontFamily="monospace"
+                    android:padding="16dp"
+                    android:text="⚡ HAZMAT\nGas/Chemical Leak"
+                    android:textColor="#FF6666"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:strokeColor="#FF3333"
+                    app:strokeWidth="1dp" />
+
+                <Button
+                    android:id="@+id/sosFloodButton"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#2A0A0A"
+                    android:fontFamily="monospace"
+                    android:padding="16dp"
+                    android:text="🌊 FLOOD\nSevere Flooding"
+                    android:textColor="#FF6666"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:strokeColor="#FF3333"
+                    app:strokeWidth="1dp" />
+            </LinearLayout>
+
+            <!-- Row 4: Weather & Food/Water -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/sosWeatherButton"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#2A0A0A"
+                    android:fontFamily="monospace"
+                    android:padding="16dp"
+                    android:text="🌪️ WEATHER\nExtreme Storm"
+                    android:textColor="#FF6666"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:strokeColor="#FF3333"
+                    app:strokeWidth="1dp" />
+
+                <Button
+                    android:id="@+id/sosFoodWaterButton"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#2A0A0A"
+                    android:fontFamily="monospace"
+                    android:padding="16dp"
+                    android:text="💧 FOOD/WATER\nClean Supplies"
+                    android:textColor="#FF6666"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:strokeColor="#FF3333"
+                    app:strokeWidth="1dp" />
+            </LinearLayout>
+
+            <!-- Row 5: Extraction -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/sosExtractionButton"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#2A0A0A"
+                    android:fontFamily="monospace"
+                    android:padding="16dp"
+                    android:text="📍 EXTRACTION\nEmergency Evac"
+                    android:textColor="#FF6666"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:strokeColor="#FF3333"
+                    app:strokeWidth="1dp" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

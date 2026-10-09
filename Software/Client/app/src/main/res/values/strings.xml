@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">LifeLine</string>
+    <string name="app_name">Life Line</string>
     <string name="terminal_title">Terminal</string>
     <string name="terminal_date_placeholder">YYYY/MM/DD HH:MM</string>
     <string name="terminal_battery">Disconnected</string>

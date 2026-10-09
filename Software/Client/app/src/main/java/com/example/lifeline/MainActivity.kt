@@ -6,7 +6,10 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
@@ -14,9 +17,6 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.text.InputType
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -28,9 +28,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.isVisible
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.BufferedReader
 import java.io.IOException
@@ -40,41 +37,6 @@ import java.io.OutputStream
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
-
-data class TerminalMessage(
-    val text: String,
-    val isReceived: Boolean,
-    val timestamp: Long = System.currentTimeMillis(),
-)
-
-class TerminalAdapter(private val messages: MutableList<TerminalMessage>) :
-    RecyclerView.Adapter<TerminalAdapter.ViewHolder>() {
-
-    class ViewHolder(val textView: TextView) : RecyclerView.ViewHolder(textView)
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val view = LayoutInflater.from(parent.context)
-            .inflate(R.layout.item_terminal_message, parent, false) as TextView
-        return ViewHolder(view)
-    }
-
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val message = messages[position]
-        val prefix = if (message.isReceived) "RX: " else "> "
-        val fullText = prefix + message.text
-        holder.textView.text = fullText
-        holder.textView.setTextColor(
-            if (message.isReceived) 0xFF00FF00.toInt() else 0xFF00CC00.toInt(),
-        )
-    }
-
-    override fun getItemCount(): Int = messages.size
-
-    fun addMessage(message: TerminalMessage) {
-        messages.add(message)
-        notifyItemInserted(messages.size - 1)
-    }
-}
 
 class MainActivity : AppCompatActivity() {
 
@@ -88,6 +50,8 @@ class MainActivity : AppCompatActivity() {
     private var locationManager: LocationManager? = null
     private var currentLocation: Location? = null
 
+    private val discoveredDevices = mutableListOf<BluetoothDevice>()
+
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
             if (location.provider == LocationManager.GPS_PROVIDER) {
@@ -98,12 +62,27 @@ class MainActivity : AppCompatActivity() {
         override fun onProviderDisabled(provider: String) {}
     }
 
-    private val messagesList = mutableListOf<TerminalMessage>()
-    private lateinit var terminalAdapter: TerminalAdapter
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var statusText: TextView
+    private val bluetoothReceiver = object : BroadcastReceiver() {
+        @SuppressLint("MissingPermission")
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                BluetoothDevice.ACTION_FOUND -> {
+                    val device: BluetoothDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                    }
+                    if (device != null && !discoveredDevices.contains(device)) {
+                        discoveredDevices.add(device)
+                    }
+                }
+            }
+        }
+    }
+
+    private lateinit var statusText: Button
     private lateinit var titleView: TextView
-    private lateinit var sosButton: Button
 
     @Volatile
     private var isConnected = false
@@ -148,37 +127,78 @@ class MainActivity : AppCompatActivity() {
         bluetoothAdapter = bluetoothManager?.adapter
         locationManager = getSystemService(LOCATION_SERVICE) as? LocationManager
 
-        recyclerView = findViewById(R.id.recyclerView)
         statusText = findViewById(R.id.textView2)
         titleView = findViewById(R.id.textView)
-        sosButton = findViewById(R.id.sosButton)
 
-        terminalAdapter = TerminalAdapter(messagesList)
-        recyclerView.layoutManager = LinearLayoutManager(this).apply {
-            stackFromEnd = true
-        }
-        recyclerView.adapter = terminalAdapter
+        // Register Bluetooth Discovery Receiver
+        val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
+        registerReceiver(bluetoothReceiver, filter)
 
-        titleView.setOnClickListener {
-            if (recyclerView.isVisible) {
-                recyclerView.visibility = View.GONE
-                sosButton.visibility = View.VISIBLE
-            } else {
-                recyclerView.visibility = View.VISIBLE
-                sosButton.visibility = View.GONE
-            }
-        }
-
-        sosButton.setOnClickListener {
-            showEmergencySelectionDialog()
-        }
+        // SOS Buttons Setup (9 Emergency Profiles)
+        setupSosButtons()
 
         statusText.setOnClickListener {
             onStatusClicked()
         }
 
         checkAndRequestInitialPermissions()
-        addTerminalMessage("Terminal Initialized. Tap status to connect Bluetooth.", isReceived = true)
+        Toast.makeText(this, "Life Line Initialized. Tap 'Connect' to view nearest devices.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun setupSosButtons() {
+        val sosMap = mapOf(
+            R.id.sosMedicalButton to Pair("MEDICAL (Critical Injury)", "We need Medical assistance (Critical Injury)"),
+            R.id.sosFireButton to Pair("FIRE (Structure/Wildfire)", "We need Fire assistance (Structure/Wildfire)"),
+            R.id.sosSecurityButton to Pair("SECURITY (Hostile/Terrorist)", "We need Security assistance (Hostile/Terrorist)"),
+            R.id.sosTrappedButton to Pair("TRAPPED (Rubble / Rescue)", "We need Trapped assistance (Rubble / Rescue)"),
+            R.id.sosHazmatButton to Pair("HAZMAT (Gas/Chemical Leak)", "We need Hazmat assistance (Gas/Chemical Leak)"),
+            R.id.sosFloodButton to Pair("FLOOD (Severe Flooding)", "We need Flood assistance (Severe Flooding)"),
+            R.id.sosWeatherButton to Pair("WEATHER (Extreme Storm)", "We need Weather assistance (Extreme Storm)"),
+            R.id.sosFoodWaterButton to Pair("FOOD/WATER (Clean Supplies)", "We need Food & Clean water assistance (Clean Supplies)"),
+            R.id.sosExtractionButton to Pair("EXTRACTION (Emergency Evac)", "We need Emergency evacuation assistance (Emergency Evac)"),
+        )
+
+        sosMap.forEach { (buttonId, pair) ->
+            findViewById<Button>(buttonId)?.setOnClickListener {
+                showSosDetailsDialog(pair.first, pair.second)
+            }
+        }
+    }
+
+    private fun showSosDetailsDialog(emergencyTitle: String, baseMessage: String) {
+        val inputEditText = EditText(this).apply {
+            hint = "Additional details (optional)"
+            setTextColor(0xFFFF6666.toInt())
+            setHintTextColor(0xFF884444.toInt())
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 3
+            setPadding(32, 32, 32, 32)
+        }
+
+        val container = FrameLayout(this).apply {
+            setPadding(48, 24, 48, 24)
+            addView(inputEditText)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("🚨 $emergencyTitle")
+            .setView(container)
+            .setPositiveButton("Send Broadcast") { _, _ ->
+                val extraDetails = inputEditText.text.toString().trim()
+                val finalMessage = if (extraDetails.isNotEmpty()) {
+                    "$baseMessage - $extraDetails"
+                } else {
+                    baseMessage
+                }
+                sendSosMessage(finalMessage)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun sendSosMessage(sosMessageText: String) {
+        val fullSosMessage = "SOS: $sosMessageText"
+        sendBluetoothMessage(fullSosMessage)
     }
 
     private fun checkAndRequestInitialPermissions() {
@@ -240,67 +260,18 @@ class MainActivity : AppCompatActivity() {
         return "GPS: No Fix"
     }
 
-    private fun showEmergencySelectionDialog() {
-        val emergencyTypes = arrayOf(
-            "🏥 Medical",
-            "🏚️ Trapped",
-            "🔥 Fire",
-            "🌊 Flood",
-            "👥 Missing person",
-            "❓ Other",
-        )
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("What type of emergency?")
-            .setItems(emergencyTypes) { _, which ->
-                val selected = emergencyTypes[which]
-                if (selected.contains("Other")) {
-                    showCustomEmergencyDialog()
-                } else {
-                    sendBluetoothMessage("SOS: $selected")
-                }
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
-    }
-
-    private fun showCustomEmergencyDialog() {
-        val inputEditText = EditText(this).apply {
-            hint = "Type custom emergency..."
-            setTextColor(0xFF00FF00.toInt())
-            setHintTextColor(0xFF008800.toInt())
-            inputType = InputType.TYPE_CLASS_TEXT
-            setPadding(32, 32, 32, 32)
-        }
-
-        val container = FrameLayout(this).apply {
-            setPadding(48, 24, 48, 24)
-            addView(inputEditText)
-        }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Custom Emergency")
-            .setView(container)
-            .setPositiveButton("Send") { _, _ ->
-                val customText = inputEditText.text.toString().trim()
-                if (customText.isNotEmpty()) {
-                    sendBluetoothMessage("SOS: $customText")
-                } else {
-                    Toast.makeText(this, "Emergency message cannot be empty", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
-    }
-
     private fun sendBluetoothMessage(message: String) {
-        if ((!isConnected) || (outputStream == null)) {
-            Toast.makeText(this, "Not connected to any Bluetooth device. Tap status to connect.", Toast.LENGTH_LONG).show()
-            return
-        }
-
         val gpsInfo = getGpsString()
         val fullMessage = "$message | $gpsInfo"
+
+        if ((!isConnected) || (outputStream == null)) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("SOS Broadcast Prepared")
+                .setMessage("$fullMessage\n\n(Bluetooth is disconnected. Tap 'Connect' at top right to select a nearest device and transmit over mesh).")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
 
         executor.execute {
             try {
@@ -309,13 +280,12 @@ class MainActivity : AppCompatActivity() {
                 outputStream?.flush()
 
                 runOnUiThread {
-                    addTerminalMessage(fullMessage, isReceived = false)
-                    Toast.makeText(this, "SOS Sent with GPS", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "🚨 SOS Broadcast Sent over Bluetooth!", Toast.LENGTH_LONG).show()
                 }
             } catch (e: IOException) {
                 e.printStackTrace()
                 runOnUiThread {
-                    Toast.makeText(this, "Failed to send SOS: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Failed to send: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -324,12 +294,15 @@ class MainActivity : AppCompatActivity() {
     private fun onStatusClicked() {
         if (isConnected) {
             MaterialAlertDialogBuilder(this)
-                .setTitle("Disconnect Bluetooth")
-                .setMessage("Do you want to disconnect from the current device?")
+                .setTitle("Bluetooth Connected")
+                .setMessage("Currently connected to device. Do you want to disconnect?")
                 .setPositiveButton("Disconnect") { _, _ ->
                     closeCurrentConnection()
                     updateStatus(getString(R.string.bt_disconnected))
-                    addTerminalMessage("Disconnected from device.", isReceived = true)
+                    Toast.makeText(this, "Disconnected from Bluetooth device.", Toast.LENGTH_SHORT).show()
+                }
+                .setNeutralButton("Switch Device") { _, _ ->
+                    checkPermissionsAndConnect()
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
@@ -341,7 +314,7 @@ class MainActivity : AppCompatActivity() {
     private fun checkPermissionsAndConnect() {
         val adapter = bluetoothAdapter
         if (adapter == null) {
-            Toast.makeText(this, "Bluetooth is not supported on this device.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Bluetooth hardware is not supported on this device.", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -362,16 +335,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (!isEnabled) {
-            Toast.makeText(
-                this,
-                "Bluetooth is turned off. Please turn on Bluetooth to connect.",
-                Toast.LENGTH_LONG,
-            ).show()
-
             MaterialAlertDialogBuilder(this)
                 .setTitle("Bluetooth Turned Off")
-                .setMessage("Bluetooth is currently turned off on your device. Would you like to turn it on?")
-                .setPositiveButton("Enable") { _, _ ->
+                .setMessage("Bluetooth is currently turned off on your device. Turn it on to view nearest devices?")
+                .setPositiveButton("Turn On") { _, _ ->
                     try {
                         val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
                         enableBluetoothLauncher.launch(enableBtIntent)
@@ -404,27 +371,58 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("MissingPermission")
     private fun showDeviceSelectionDialog() {
+        val adapter = bluetoothAdapter ?: return
+
+        try {
+            if (adapter.isDiscovering) {
+                adapter.cancelDiscovery()
+            }
+            adapter.startDiscovery()
+        } catch (_: SecurityException) {}
+
         val pairedDevices = try {
-            bluetoothAdapter?.bondedDevices?.toList() ?: emptyList()
+            adapter.bondedDevices?.toList() ?: emptyList()
         } catch (_: SecurityException) {
             emptyList()
         }
 
-        if (pairedDevices.isEmpty()) {
-            Toast.makeText(this, getString(R.string.no_paired_devices), Toast.LENGTH_LONG).show()
+        val combinedDevices = mutableListOf<BluetoothDevice>()
+        combinedDevices.addAll(pairedDevices)
+        discoveredDevices.forEach { dev ->
+            if (!combinedDevices.contains(dev)) {
+                combinedDevices.add(dev)
+            }
+        }
+
+        if (combinedDevices.isEmpty()) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("📡 Nearest Bluetooth Devices")
+                .setMessage("Scanning for nearest Bluetooth & LoRa devices...\n\nMake sure your module is powered on and discoverable.")
+                .setPositiveButton("Scan Again") { _, _ ->
+                    checkPermissionsAndConnect()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
             return
         }
 
-        val deviceNames = pairedDevices.map { device ->
-            "${device.name ?: "Unknown Device"}\n${device.address}"
+        val deviceNames = combinedDevices.map { device ->
+            val name = try { device.name } catch (_: SecurityException) { null } ?: "Bluetooth Device"
+            val bondedText = try {
+                if (device.bondState == BluetoothDevice.BOND_BONDED) "[Paired]" else "[Nearby]"
+            } catch (_: SecurityException) { "" }
+            "$name $bondedText\n${device.address}"
         }.toTypedArray()
 
         MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.select_bluetooth_device)
+            .setTitle("📡 Nearest Bluetooth Devices")
             .setItems(deviceNames) { _, which ->
-                connectToDevice(pairedDevices[which])
+                connectToDevice(combinedDevices[which])
             }
-            .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton("🔄 Scan Again") { _, _ ->
+                checkPermissionsAndConnect()
+            }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 
@@ -436,8 +434,7 @@ class MainActivity : AppCompatActivity() {
             device.address
         }
 
-        updateStatus(getString(R.string.bt_connecting))
-        addTerminalMessage("Connecting to $deviceName...", isReceived = true)
+        updateStatus("Connecting...")
 
         executor.execute {
             try {
@@ -455,8 +452,8 @@ class MainActivity : AppCompatActivity() {
                 isConnected = true
 
                 runOnUiThread {
-                    updateStatus("Connected: $deviceName")
-                    addTerminalMessage("Connected to $deviceName", isReceived = true)
+                    updateStatus("🟢 $deviceName")
+                    Toast.makeText(this, "Connected to $deviceName", Toast.LENGTH_SHORT).show()
                 }
 
                 startListeningForData()
@@ -464,9 +461,8 @@ class MainActivity : AppCompatActivity() {
                 e.printStackTrace()
                 closeCurrentConnection()
                 runOnUiThread {
-                    updateStatus(getString(R.string.bt_disconnected))
-                    addTerminalMessage("Connection failed: ${e.localizedMessage}", isReceived = true)
-                    Toast.makeText(this, "Failed to connect: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                    updateStatus("Connect")
+                    Toast.makeText(this, "Failed to connect to $deviceName", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -479,7 +475,11 @@ class MainActivity : AppCompatActivity() {
                 while (isConnected && (bluetoothSocket?.isConnected == true)) {
                     val line = reader.readLine() ?: break
                     runOnUiThread {
-                        addTerminalMessage(line, isReceived = true)
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("Incoming Message")
+                            .setMessage(line)
+                            .setPositiveButton("OK", null)
+                            .show()
                     }
                 }
             } catch (e: IOException) {
@@ -488,23 +488,23 @@ class MainActivity : AppCompatActivity() {
                 if (isConnected) {
                     closeCurrentConnection()
                     runOnUiThread {
-                        updateStatus(getString(R.string.bt_disconnected))
-                        addTerminalMessage("Bluetooth disconnected", isReceived = true)
+                        updateStatus("Connect")
+                        Toast.makeText(this, "Bluetooth disconnected.", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
         }
     }
 
-    private fun addTerminalMessage(text: String, isReceived: Boolean) {
-        terminalAdapter.addMessage(TerminalMessage(text, isReceived))
-        if (terminalAdapter.itemCount > 0) {
-            recyclerView.smoothScrollToPosition(terminalAdapter.itemCount - 1)
-        }
-    }
-
     private fun updateStatus(status: String) {
         statusText.text = status
+        if (isConnected) {
+            statusText.setBackgroundColor(0xFF004400.toInt())
+            statusText.setTextColor(0xFF00FF00.toInt())
+        } else {
+            statusText.setBackgroundColor(0xFF221500.toInt())
+            statusText.setTextColor(0xFFFFB000.toInt())
+        }
     }
 
     private fun closeCurrentConnection() {
@@ -525,11 +525,18 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        try {
+            unregisterReceiver(bluetoothReceiver)
+        } catch (_: Exception) {}
         closeCurrentConnection()
         try {
             locationManager?.removeUpdates(locationListener)
         } catch (_: Exception) {}
         executor.shutdown()
+        readDestroy()
+    }
+
+    private fun readDestroy() {
         readExecutor.shutdown()
     }
 }
