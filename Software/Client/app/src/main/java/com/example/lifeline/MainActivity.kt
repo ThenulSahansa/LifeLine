@@ -16,10 +16,10 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
-import android.text.InputType
+import android.view.LayoutInflater
+import android.view.View
 import android.widget.Button
-import android.widget.EditText
-import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -29,6 +29,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStream
@@ -54,8 +56,12 @@ class MainActivity : AppCompatActivity() {
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
-            if (location.provider == LocationManager.GPS_PROVIDER) {
+            val isGps = location.provider == LocationManager.GPS_PROVIDER
+            if (isGps || (currentLocation == null)) {
                 currentLocation = location
+                runOnUiThread {
+                    updateGpsDisplay()
+                }
             }
         }
         override fun onProviderEnabled(provider: String) {}
@@ -73,7 +79,7 @@ class MainActivity : AppCompatActivity() {
                         @Suppress("DEPRECATION")
                         intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
                     }
-                    if (device != null && !discoveredDevices.contains(device)) {
+                    if ((device != null) && !discoveredDevices.contains(device)) {
                         discoveredDevices.add(device)
                     }
                 }
@@ -81,8 +87,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private lateinit var statusText: Button
-    private lateinit var titleView: TextView
+    private lateinit var statusConnectContainer: View
+    private lateinit var bluetoothStatusText: TextView
+    private lateinit var bluetoothIcon: ImageView
+    private lateinit var statusBadgeDot: TextView
+    private lateinit var gpsStatusText: TextView
 
     @Volatile
     private var isConnected = false
@@ -91,9 +100,9 @@ class MainActivity : AppCompatActivity() {
     private val readExecutor = Executors.newSingleThreadExecutor()
 
     private val requestPermissionsLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
+        ActivityResultContracts.RequestMultiplePermissions(),
     ) { permissions ->
-        val granted = permissions.entries.all { it.value }
+        val granted = permissions.values.all { it }
         if (granted) {
             startGpsUpdates()
             checkPermissionsAndConnect()
@@ -127,68 +136,97 @@ class MainActivity : AppCompatActivity() {
         bluetoothAdapter = bluetoothManager?.adapter
         locationManager = getSystemService(LOCATION_SERVICE) as? LocationManager
 
-        statusText = findViewById(R.id.textView2)
-        titleView = findViewById(R.id.textView)
+        statusConnectContainer = findViewById(R.id.statusConnectContainer)
+        bluetoothStatusText = findViewById(R.id.textView2)
+        bluetoothIcon = findViewById(R.id.bluetoothIcon)
+        statusBadgeDot = findViewById(R.id.statusBadgeDot)
+        gpsStatusText = findViewById(R.id.gpsStatusText)
 
         // Register Bluetooth Discovery Receiver
         val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
         registerReceiver(bluetoothReceiver, filter)
 
-        // SOS Buttons Setup (9 Emergency Profiles)
+        // SOS Buttons Setup (10 Emergency Profiles)
         setupSosButtons()
 
-        statusText.setOnClickListener {
+        statusConnectContainer.setOnClickListener {
             onStatusClicked()
         }
 
         checkAndRequestInitialPermissions()
-        Toast.makeText(this, "Life Line Initialized. Tap 'Connect' to view nearest devices.", Toast.LENGTH_LONG).show()
+        updateGpsDisplay()
     }
 
     private fun setupSosButtons() {
         val sosMap = mapOf(
-            R.id.sosMedicalButton to Pair("MEDICAL (Critical Injury)", "We need Medical assistance (Critical Injury)"),
-            R.id.sosFireButton to Pair("FIRE (Structure/Wildfire)", "We need Fire assistance (Structure/Wildfire)"),
-            R.id.sosSecurityButton to Pair("SECURITY (Hostile/Terrorist)", "We need Security assistance (Hostile/Terrorist)"),
-            R.id.sosTrappedButton to Pair("TRAPPED (Rubble / Rescue)", "We need Trapped assistance (Rubble / Rescue)"),
-            R.id.sosHazmatButton to Pair("HAZMAT (Gas/Chemical Leak)", "We need Hazmat assistance (Gas/Chemical Leak)"),
-            R.id.sosFloodButton to Pair("FLOOD (Severe Flooding)", "We need Flood assistance (Severe Flooding)"),
-            R.id.sosWeatherButton to Pair("WEATHER (Extreme Storm)", "We need Weather assistance (Extreme Storm)"),
-            R.id.sosFoodWaterButton to Pair("FOOD/WATER (Clean Supplies)", "We need Food & Clean water assistance (Clean Supplies)"),
-            R.id.sosExtractionButton to Pair("EXTRACTION (Emergency Evac)", "We need Emergency evacuation assistance (Emergency Evac)"),
+            R.id.sosMedicalButton to Triple("MEDICAL (Critical Injury)", "We need Medical assistance (Critical Injury)", false),
+            R.id.sosFireButton to Triple("FIRE (Structure/Wildfire)", "We need Fire assistance (Structure/Wildfire)", false),
+            R.id.sosSecurityButton to Triple("SECURITY (Hostile Threat)", "We need Security assistance (Hostile Threat)", false),
+            R.id.sosTrappedButton to Triple("TRAPPED (Rubble / Rescue)", "We need Trapped assistance (Rubble / Rescue)", false),
+            R.id.sosHazmatButton to Triple("HAZMAT (Gas / Chemical)", "We need Hazmat assistance (Gas / Chemical)", false),
+            R.id.sosFloodButton to Triple("FLOOD (Severe Flooding)", "We need Flood assistance (Severe Flooding)", false),
+            R.id.sosWeatherButton to Triple("WEATHER (Extreme Storm)", "We need Weather assistance (Extreme Storm)", false),
+            R.id.sosFoodWaterButton to Triple("FOOD/WATER (Clean Supplies)", "We need Food & Clean water assistance", false),
+            R.id.sosExtractionButton to Triple("EXTRACTION (Emergency Evac)", "We need Emergency evacuation assistance", false),
+            R.id.sosOtherButton to Triple("OTHER EMERGENCY", "Custom Emergency Broadcast", true),
         )
 
-        sosMap.forEach { (buttonId, pair) ->
+        sosMap.forEach { (buttonId, triple) ->
             findViewById<Button>(buttonId)?.setOnClickListener {
-                showSosDetailsDialog(pair.first, pair.second)
+                showSosDetailsDialog(triple.first, triple.second, isCustomType = triple.third)
             }
         }
     }
 
-    private fun showSosDetailsDialog(emergencyTitle: String, baseMessage: String) {
-        val inputEditText = EditText(this).apply {
-            hint = "Additional details (optional)"
-            setTextColor(0xFFFF6666.toInt())
-            setHintTextColor(0xFF884444.toInt())
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            minLines = 3
-            setPadding(32, 32, 32, 32)
+    private fun showSosDetailsDialog(
+        emergencyTitle: String,
+        baseMessage: String,
+        isCustomType: Boolean = false,
+    ) {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_sos_details, null)
+
+        val titleView = dialogView.findViewById<TextView>(R.id.dialogCategoryTitle)
+        val presetCardView = dialogView.findViewById<View>(R.id.dialogPresetCard)
+        val baseMessageView = dialogView.findViewById<TextView>(R.id.dialogBaseMessage)
+        val customTypeLayout = dialogView.findViewById<View>(R.id.dialogCustomTypeLayout)
+        val customTypeEditText = dialogView.findViewById<TextInputEditText>(R.id.dialogCustomTypeEditText)
+        val gpsLocationView = dialogView.findViewById<TextView>(R.id.dialogGpsLocation)
+        val inputLayout = dialogView.findViewById<TextInputLayout>(R.id.dialogInputLayout)
+        val inputEditText = dialogView.findViewById<TextInputEditText>(R.id.dialogInputEditText)
+
+        titleView.text = getString(R.string.sos_title_format, emergencyTitle)
+        gpsLocationView.text = getGpsString()
+
+        if (isCustomType) {
+            presetCardView.visibility = View.GONE
+            customTypeLayout.visibility = View.VISIBLE
+            inputLayout.hint = getString(R.string.description_hint)
+        } else {
+            presetCardView.visibility = View.VISIBLE
+            customTypeLayout.visibility = View.GONE
+            baseMessageView.text = baseMessage
+            inputLayout.hint = getString(R.string.additional_details_hint)
         }
 
-        val container = FrameLayout(this).apply {
-            setPadding(48, 24, 48, 24)
-            addView(inputEditText)
-        }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("🚨 $emergencyTitle")
-            .setView(container)
-            .setPositiveButton("Send Broadcast") { _, _ ->
-                val extraDetails = inputEditText.text.toString().trim()
-                val finalMessage = if (extraDetails.isNotEmpty()) {
-                    "$baseMessage - $extraDetails"
+        MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
+            .setView(dialogView)
+            .setPositiveButton(R.string.transmit_sos) { _, _ ->
+                val finalMessage = if (isCustomType) {
+                    val customType = customTypeEditText.text?.toString()?.trim() ?: ""
+                    val description = inputEditText.text?.toString()?.trim() ?: ""
+                    val effectiveType = customType.ifEmpty { "OTHER" }
+                    if (description.isNotEmpty()) {
+                        "OTHER ($effectiveType) - $description"
+                    } else {
+                        "OTHER ($effectiveType)"
+                    }
                 } else {
-                    baseMessage
+                    val extraDetails = inputEditText.text?.toString()?.trim() ?: ""
+                    if (extraDetails.isNotEmpty()) {
+                        "$baseMessage - $extraDetails"
+                    } else {
+                        baseMessage
+                    }
                 }
                 sendSosMessage(finalMessage)
             }
@@ -217,8 +255,9 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("MissingPermission")
     private fun startGpsUpdates() {
         val locMgr = locationManager ?: return
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+        val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (hasFine || hasCoarse) {
             try {
                 if (locMgr.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                     locMgr.requestLocationUpdates(
@@ -230,6 +269,19 @@ class MainActivity : AppCompatActivity() {
                     val lastGps = locMgr.getLastKnownLocation(LocationManager.GPS_PROVIDER)
                     if (lastGps != null) {
                         currentLocation = lastGps
+                        updateGpsDisplay()
+                    }
+                } else if (locMgr.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                    locMgr.requestLocationUpdates(
+                        LocationManager.NETWORK_PROVIDER,
+                        2000L,
+                        1f,
+                        locationListener,
+                    )
+                    val lastNet = locMgr.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                    if (lastNet != null) {
+                        currentLocation = lastNet
+                        updateGpsDisplay()
                     }
                 }
             } catch (e: Exception) {
@@ -238,26 +290,31 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun getGpsString(): String {
-        val loc = currentLocation
-        if (loc != null) {
-            return String.format(Locale.US, "GPS: %.6f,%.6f", loc.latitude, loc.longitude)
-        }
+    private fun updateGpsDisplay() {
+        gpsStatusText.text = getGpsString()
+    }
 
-        val locMgr = locationManager
-        if (locMgr != null && (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)) {
-            try {
-                val last = locMgr.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                if (last != null) {
-                    currentLocation = last
-                    return String.format(Locale.US, "GPS: %.6f,%.6f", last.latitude, last.longitude)
+    private fun getGpsString(): String {
+        val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+        val loc = currentLocation
+            ?: locationManager?.takeIf {
+                hasFine || hasCoarse
+            }?.let { locMgr ->
+                try {
+                    locMgr.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                        ?: locMgr.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                } catch (_: Exception) {
+                    null
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
+
+        return if (loc != null) {
+            String.format(Locale.US, "GPS: %.6f, %.6f", loc.latitude, loc.longitude)
+        } else {
+            getString(R.string.gps_acquiring)
         }
-        return "GPS: No Fix"
     }
 
     private fun sendBluetoothMessage(message: String) {
@@ -265,10 +322,13 @@ class MainActivity : AppCompatActivity() {
         val fullMessage = "$message | $gpsInfo"
 
         if ((!isConnected) || (outputStream == null)) {
-            MaterialAlertDialogBuilder(this)
-                .setTitle("SOS Broadcast Prepared")
-                .setMessage("$fullMessage\n\n(Bluetooth is disconnected. Tap 'Connect' at top right to select a nearest device and transmit over mesh).")
-                .setPositiveButton("OK", null)
+            MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
+                .setTitle("🚨 SOS Broadcast Prepared")
+                .setMessage("$fullMessage\n\n⚠️ Mesh Bluetooth is currently disconnected. Tap 'Connect' to pair with a nearest node and transmit.")
+                .setPositiveButton("Connect Device") { _, _ ->
+                    checkPermissionsAndConnect()
+                }
+                .setNegativeButton("OK", null)
                 .show()
             return
         }
@@ -280,12 +340,12 @@ class MainActivity : AppCompatActivity() {
                 outputStream?.flush()
 
                 runOnUiThread {
-                    Toast.makeText(this, "🚨 SOS Broadcast Sent over Bluetooth!", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "🚨 SOS Broadcast Transmitted over Mesh!", Toast.LENGTH_LONG).show()
                 }
             } catch (e: IOException) {
                 e.printStackTrace()
                 runOnUiThread {
-                    Toast.makeText(this, "Failed to send: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Transmission Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -293,15 +353,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun onStatusClicked() {
         if (isConnected) {
-            MaterialAlertDialogBuilder(this)
+            MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
                 .setTitle("Bluetooth Connected")
-                .setMessage("Currently connected to device. Do you want to disconnect?")
+                .setMessage("Currently connected to mesh node. Do you want to disconnect?")
                 .setPositiveButton("Disconnect") { _, _ ->
                     closeCurrentConnection()
                     updateStatus(getString(R.string.bt_disconnected))
                     Toast.makeText(this, "Disconnected from Bluetooth device.", Toast.LENGTH_SHORT).show()
                 }
-                .setNeutralButton("Switch Device") { _, _ ->
+                .setNeutralButton("Switch Node") { _, _ ->
                     checkPermissionsAndConnect()
                 }
                 .setNegativeButton("Cancel", null)
@@ -335,9 +395,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (!isEnabled) {
-            MaterialAlertDialogBuilder(this)
+            MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
                 .setTitle("Bluetooth Turned Off")
-                .setMessage("Bluetooth is currently turned off on your device. Turn it on to view nearest devices?")
+                .setMessage("Bluetooth is currently turned off on your device. Turn it on to scan for nearby mesh nodes?")
                 .setPositiveButton("Turn On") { _, _ ->
                     try {
                         val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
@@ -395,9 +455,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (combinedDevices.isEmpty()) {
-            MaterialAlertDialogBuilder(this)
-                .setTitle("📡 Nearest Bluetooth Devices")
-                .setMessage("Scanning for nearest Bluetooth & LoRa devices...\n\nMake sure your module is powered on and discoverable.")
+            MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
+                .setTitle("📡 Nearby Bluetooth Devices")
+                .setMessage("Scanning for nearest Bluetooth & LoRa mesh nodes...\n\nEnsure your device is powered on and in range.")
                 .setPositiveButton("Scan Again") { _, _ ->
                     checkPermissionsAndConnect()
                 }
@@ -407,15 +467,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         val deviceNames = combinedDevices.map { device ->
-            val name = try { device.name } catch (_: SecurityException) { null } ?: "Bluetooth Device"
+            val name = try { device.name } catch (_: SecurityException) { null } ?: "Unknown Device"
             val bondedText = try {
                 if (device.bondState == BluetoothDevice.BOND_BONDED) "[Paired]" else "[Nearby]"
             } catch (_: SecurityException) { "" }
             "$name $bondedText\n${device.address}"
         }.toTypedArray()
 
-        MaterialAlertDialogBuilder(this)
-            .setTitle("📡 Nearest Bluetooth Devices")
+        MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
+            .setTitle(R.string.select_bluetooth_device)
             .setItems(deviceNames) { _, which ->
                 connectToDevice(combinedDevices[which])
             }
@@ -434,7 +494,7 @@ class MainActivity : AppCompatActivity() {
             device.address
         }
 
-        updateStatus("Connecting...")
+        updateStatus("Connecting to $deviceName...")
 
         executor.execute {
             try {
@@ -452,7 +512,7 @@ class MainActivity : AppCompatActivity() {
                 isConnected = true
 
                 runOnUiThread {
-                    updateStatus("🟢 $deviceName")
+                    updateStatus(getString(R.string.bt_connected, deviceName))
                     Toast.makeText(this, "Connected to $deviceName", Toast.LENGTH_SHORT).show()
                 }
 
@@ -461,7 +521,7 @@ class MainActivity : AppCompatActivity() {
                 e.printStackTrace()
                 closeCurrentConnection()
                 runOnUiThread {
-                    updateStatus("Connect")
+                    updateStatus(getString(R.string.bt_disconnected))
                     Toast.makeText(this, "Failed to connect to $deviceName", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -475,8 +535,8 @@ class MainActivity : AppCompatActivity() {
                 while (isConnected && (bluetoothSocket?.isConnected == true)) {
                     val line = reader.readLine() ?: break
                     runOnUiThread {
-                        MaterialAlertDialogBuilder(this)
-                            .setTitle("Incoming Message")
+                        MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
+                            .setTitle("📡 Incoming Mesh Message")
                             .setMessage(line)
                             .setPositiveButton("OK", null)
                             .show()
@@ -488,7 +548,7 @@ class MainActivity : AppCompatActivity() {
                 if (isConnected) {
                     closeCurrentConnection()
                     runOnUiThread {
-                        updateStatus("Connect")
+                        updateStatus(getString(R.string.bt_disconnected))
                         Toast.makeText(this, "Bluetooth disconnected.", Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -496,14 +556,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateStatus(status: String) {
-        statusText.text = status
+    private fun updateStatus(statusText: String) {
+        bluetoothStatusText.text = statusText
+        val greenColor = ContextCompat.getColor(this, R.color.green_connected)
+        val amberColor = ContextCompat.getColor(this, R.color.amber_primary)
+
         if (isConnected) {
-            statusText.setBackgroundColor(0xFF004400.toInt())
-            statusText.setTextColor(0xFF00FF00.toInt())
+            statusConnectContainer.setBackgroundResource(R.drawable.bg_pill_green)
+            bluetoothStatusText.setTextColor(greenColor)
+            bluetoothIcon.setColorFilter(greenColor)
+            statusBadgeDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.green_connected)
         } else {
-            statusText.setBackgroundColor(0xFF221500.toInt())
-            statusText.setTextColor(0xFFFFB000.toInt())
+            statusConnectContainer.setBackgroundResource(R.drawable.bg_pill_amber)
+            bluetoothStatusText.setTextColor(amberColor)
+            bluetoothIcon.setColorFilter(amberColor)
+            statusBadgeDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.amber_primary)
         }
     }
 

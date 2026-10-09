@@ -2,4 +2,29 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- LifeLine Dark Tactical Palette -->
+    <color name="bg_dark">#0B0E14</color>
+    <color name="surface_dark">#161B26</color>
+    <color name="surface_variant">#1F2636</color>
+    <color name="stroke_subtle">#2D374A</color>
+
+    <color name="amber_primary">#FFB000</color>
+    <color name="amber_container">#2B1D00</color>
+
+    <color name="green_connected">#34C759</color>
+    <color name="green_container">#0D2D16</color>
+
+    <color name="cyan_gps">#00B0FF</color>
+    <color name="cyan_container">#0A2333</color>
+
+    <color name="sos_red">#FF3B30</color>
+    <color name="sos_red_light">#FF6B6B</color>
+    <color name="sos_card_bg">#1F1215</color>
+    <color name="sos_card_stroke">#4D1C22</color>
+    <color name="sos_card_stroke_active">#FF3B30</color>
+
+    <color name="text_primary">#F0F4F8</color>
+    <color name="text_secondary">#9DA8B8</color>
+    <color name="text_muted">#626D7D</color>
 </resources>

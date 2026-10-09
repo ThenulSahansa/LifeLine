@@ -5,129 +5,226 @@
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000"
-    android:padding="12dp"
+    android:background="@color/bg_dark"
+    android:padding="16dp"
     tools:context=".MainActivity">
 
-    <!-- Permanent Header: [🔵 Life Line] [Connect Button] -->
-    <TextView
-        android:id="@+id/textView"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:clickable="true"
-        android:focusable="true"
-        android:fontFamily="monospace"
-        android:includeFontPadding="false"
-        android:text="🔵 Life Line"
-        android:textColor="#FFB000"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
-    <Button
-        android:id="@+id/textView2"
-        android:layout_width="wrap_content"
-        android:layout_height="32dp"
-        android:backgroundTint="#221500"
-        android:fontFamily="monospace"
-        android:paddingHorizontal="10dp"
-        android:paddingVertical="0dp"
-        android:text="Connect"
-        android:textColor="#FFB000"
-        android:textSize="11sp"
-        android:textStyle="bold"
-        app:layout_constraintBottom_toBottomOf="@id/textView"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="@id/textView"
-        app:strokeColor="#FFB000"
-        app:strokeWidth="1dp" />
-
-    <!-- Header Separator Line -->
-    <View
-        android:id="@+id/headerDivider"
+    <!-- Header Section -->
+    <LinearLayout
+        android:id="@+id/headerLayout"
         android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginTop="8dp"
-        android:background="#332200"
-        app:layout_constraintTop_toBottomOf="@id/textView" />
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintTop_toTopOf="parent">
 
-    <!-- Main Content: SOS Emergency Dispatch Grid -->
-    <ScrollView
-        android:id="@+id/sosContainer"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="8dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/headerDivider">
+        <ImageView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:contentDescription="@string/logo_desc"
+            android:src="@drawable/ic_lifeline_logo" />
 
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="4dp">
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
 
             <TextView
-                android:layout_width="match_parent"
+                android:id="@+id/textView"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:fontFamily="monospace"
-                android:gravity="center"
-                android:text="EMERGENCY DISPATCH"
-                android:textColor="#FF3333"
+                android:fontFamily="sans-serif-black"
+                android:letterSpacing="0.08"
+                android:text="@string/app_title"
+                android:textColor="@color/amber_primary"
                 android:textSize="20sp"
                 android:textStyle="bold" />
 
             <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.05"
+                android:text="@string/mesh_dispatch_tag"
+                android:textColor="@color/text_muted"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Bluetooth & GPS Dashboard Card -->
+    <LinearLayout
+        android:id="@+id/statusDashboardCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:background="@drawable/bg_status_card"
+        android:orientation="vertical"
+        android:padding="12dp"
+        app:layout_constraintTop_toBottomOf="@id/headerLayout">
+
+        <!-- Bluetooth Mesh Status Chip Button -->
+        <LinearLayout
+            android:id="@+id/statusConnectContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_pill_amber"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="10dp">
+
+            <ImageView
+                android:id="@+id/bluetoothIcon"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:contentDescription="@string/bluetooth_desc"
+                android:src="@drawable/ic_bluetooth"
+                app:tint="@color/amber_primary" />
+
+            <TextView
+                android:id="@+id/textView2"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:fontFamily="sans-serif-medium"
+                android:text="@string/bt_disconnected"
+                android:textColor="@color/amber_primary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/statusBadgeDot"
+                android:layout_width="8dp"
+                android:layout_height="8dp"
+                android:background="@drawable/bg_pill_amber"
+                android:backgroundTint="@color/amber_primary" />
+        </LinearLayout>
+
+        <!-- GPS Location Indicator Chip -->
+        <LinearLayout
+            android:id="@+id/gpsStatusContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_pill_cyan"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="8dp">
+
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:contentDescription="@string/gps_sensor_desc"
+                android:src="@drawable/ic_gps"
+                app:tint="@color/cyan_gps" />
+
+            <TextView
+                android:id="@+id/gpsStatusText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:layout_marginBottom="16dp"
+                android:layout_marginStart="10dp"
                 android:fontFamily="monospace"
-                android:gravity="center"
-                android:text="Tap an emergency profile to add details &amp; broadcast"
-                android:textColor="#AA4444"
-                android:textSize="12sp" />
+                android:text="@string/gps_acquiring"
+                android:textColor="@color/cyan_gps"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- Main Section Divider -->
+    <TextView
+        android:id="@+id/dispatchTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:fontFamily="sans-serif-black"
+        android:letterSpacing="0.05"
+        android:text="@string/dispatch_profiles_title"
+        android:textColor="@color/sos_red_light"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/statusDashboardCard" />
+
+    <TextView
+        android:id="@+id/dispatchSubtitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:fontFamily="sans-serif"
+        android:text="@string/dispatch_profiles_subtitle"
+        android:textColor="@color/text_muted"
+        android:textSize="11sp"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/dispatchTitle" />
+
+    <!-- Emergency Profiles Container ScrollView -->
+    <ScrollView
+        android:id="@+id/sosContainer"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginTop="10dp"
+        android:fillViewport="true"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/dispatchSubtitle">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
 
             <!-- Row 1: Medical & Fire -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="10dp"
+                android:baselineAligned="false"
                 android:orientation="horizontal">
 
-                <Button
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/sosMedicalButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_marginEnd="6dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="5dp"
                     android:layout_weight="1"
-                    android:backgroundTint="#2A0A0A"
-                    android:fontFamily="monospace"
-                    android:padding="16dp"
-                    android:text="❤️ MEDICAL\nCritical Injury"
-                    android:textColor="#FF6666"
-                    android:textSize="14sp"
+                    android:backgroundTint="@color/sos_card_bg"
+                    android:gravity="start|center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="14dp"
+                    android:text="@string/sos_medical_text"
+                    android:textColor="@color/sos_red_light"
+                    android:textSize="13sp"
                     android:textStyle="bold"
-                    app:strokeColor="#FF3333"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="@color/sos_card_stroke"
                     app:strokeWidth="1dp" />
 
-                <Button
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/sosFireButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_marginStart="6dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="5dp"
                     android:layout_weight="1"
-                    android:backgroundTint="#2A0A0A"
-                    android:fontFamily="monospace"
-                    android:padding="16dp"
-                    android:text="🔥 FIRE\nStructure/Wildfire"
-                    android:textColor="#FF6666"
-                    android:textSize="14sp"
+                    android:backgroundTint="@color/sos_card_bg"
+                    android:gravity="start|center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="14dp"
+                    android:text="@string/sos_fire_text"
+                    android:textColor="@color/sos_red_light"
+                    android:textSize="13sp"
                     android:textStyle="bold"
-                    app:strokeColor="#FF3333"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="@color/sos_card_stroke"
                     app:strokeWidth="1dp" />
             </LinearLayout>
 
@@ -136,38 +233,45 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="10dp"
+                android:baselineAligned="false"
                 android:orientation="horizontal">
 
-                <Button
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/sosSecurityButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_marginEnd="6dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="5dp"
                     android:layout_weight="1"
-                    android:backgroundTint="#2A0A0A"
-                    android:fontFamily="monospace"
-                    android:padding="16dp"
-                    android:text="🛡️ SECURITY\nHostile/Terrorist"
-                    android:textColor="#FF6666"
-                    android:textSize="14sp"
+                    android:backgroundTint="@color/sos_card_bg"
+                    android:gravity="start|center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="14dp"
+                    android:text="@string/sos_security_text"
+                    android:textColor="@color/sos_red_light"
+                    android:textSize="13sp"
                     android:textStyle="bold"
-                    app:strokeColor="#FF3333"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="@color/sos_card_stroke"
                     app:strokeWidth="1dp" />
 
-                <Button
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/sosTrappedButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_marginStart="6dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="5dp"
                     android:layout_weight="1"
-                    android:backgroundTint="#2A0A0A"
-                    android:fontFamily="monospace"
-                    android:padding="16dp"
-                    android:text="💀 TRAPPED\nRubble / Rescue"
-                    android:textColor="#FF6666"
-                    android:textSize="14sp"
+                    android:backgroundTint="@color/sos_card_bg"
+                    android:gravity="start|center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="14dp"
+                    android:text="@string/sos_trapped_text"
+                    android:textColor="@color/sos_red_light"
+                    android:textSize="13sp"
                     android:textStyle="bold"
-                    app:strokeColor="#FF3333"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="@color/sos_card_stroke"
                     app:strokeWidth="1dp" />
             </LinearLayout>
 
@@ -176,38 +280,45 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="10dp"
+                android:baselineAligned="false"
                 android:orientation="horizontal">
 
-                <Button
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/sosHazmatButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_marginEnd="6dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="5dp"
                     android:layout_weight="1"
-                    android:backgroundTint="#2A0A0A"
-                    android:fontFamily="monospace"
-                    android:padding="16dp"
-                    android:text="⚡ HAZMAT\nGas/Chemical Leak"
-                    android:textColor="#FF6666"
-                    android:textSize="14sp"
+                    android:backgroundTint="@color/sos_card_bg"
+                    android:gravity="start|center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="14dp"
+                    android:text="@string/sos_hazmat_text"
+                    android:textColor="@color/sos_red_light"
+                    android:textSize="13sp"
                     android:textStyle="bold"
-                    app:strokeColor="#FF3333"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="@color/sos_card_stroke"
                     app:strokeWidth="1dp" />
 
-                <Button
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/sosFloodButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_marginStart="6dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="5dp"
                     android:layout_weight="1"
-                    android:backgroundTint="#2A0A0A"
-                    android:fontFamily="monospace"
-                    android:padding="16dp"
-                    android:text="🌊 FLOOD\nSevere Flooding"
-                    android:textColor="#FF6666"
-                    android:textSize="14sp"
+                    android:backgroundTint="@color/sos_card_bg"
+                    android:gravity="start|center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="14dp"
+                    android:text="@string/sos_flood_text"
+                    android:textColor="@color/sos_red_light"
+                    android:textSize="13sp"
                     android:textStyle="bold"
-                    app:strokeColor="#FF3333"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="@color/sos_card_stroke"
                     app:strokeWidth="1dp" />
             </LinearLayout>
 
@@ -216,69 +327,93 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="10dp"
+                android:baselineAligned="false"
                 android:orientation="horizontal">
 
-                <Button
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/sosWeatherButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_marginEnd="6dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="5dp"
                     android:layout_weight="1"
-                    android:backgroundTint="#2A0A0A"
-                    android:fontFamily="monospace"
-                    android:padding="16dp"
-                    android:text="🌪️ WEATHER\nExtreme Storm"
-                    android:textColor="#FF6666"
-                    android:textSize="14sp"
+                    android:backgroundTint="@color/sos_card_bg"
+                    android:gravity="start|center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="14dp"
+                    android:text="@string/sos_weather_text"
+                    android:textColor="@color/sos_red_light"
+                    android:textSize="13sp"
                     android:textStyle="bold"
-                    app:strokeColor="#FF3333"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="@color/sos_card_stroke"
                     app:strokeWidth="1dp" />
 
-                <Button
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/sosFoodWaterButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_marginStart="6dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="5dp"
                     android:layout_weight="1"
-                    android:backgroundTint="#2A0A0A"
-                    android:fontFamily="monospace"
-                    android:padding="16dp"
-                    android:text="💧 FOOD/WATER\nClean Supplies"
-                    android:textColor="#FF6666"
-                    android:textSize="14sp"
+                    android:backgroundTint="@color/sos_card_bg"
+                    android:gravity="start|center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="14dp"
+                    android:text="@string/sos_supplies_text"
+                    android:textColor="@color/sos_red_light"
+                    android:textSize="13sp"
                     android:textStyle="bold"
-                    app:strokeColor="#FF3333"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="@color/sos_card_stroke"
                     app:strokeWidth="1dp" />
             </LinearLayout>
 
-            <!-- Row 5: Extraction -->
+            <!-- Row 5: Extraction & Other -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="10dp"
+                android:baselineAligned="false"
                 android:orientation="horizontal">
 
-                <Button
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/sosExtractionButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_marginEnd="6dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="5dp"
                     android:layout_weight="1"
-                    android:backgroundTint="#2A0A0A"
-                    android:fontFamily="monospace"
-                    android:padding="16dp"
-                    android:text="📍 EXTRACTION\nEmergency Evac"
-                    android:textColor="#FF6666"
-                    android:textSize="14sp"
+                    android:backgroundTint="@color/sos_card_bg"
+                    android:gravity="start|center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="14dp"
+                    android:text="@string/sos_extraction_text"
+                    android:textColor="@color/sos_red_light"
+                    android:textSize="13sp"
                     android:textStyle="bold"
-                    app:strokeColor="#FF3333"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="@color/sos_card_stroke"
                     app:strokeWidth="1dp" />
 
-                <View
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/sosOtherButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_marginStart="6dp"
-                    android:layout_weight="1" />
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="5dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="@color/sos_card_bg"
+                    android:gravity="start|center_vertical"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="14dp"
+                    android:text="@string/sos_other_text"
+                    android:textColor="@color/sos_red_light"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="@color/sos_card_stroke"
+                    app:strokeWidth="1dp" />
             </LinearLayout>
 
         </LinearLayout>

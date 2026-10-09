@@ -1,9 +1,32 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Base.Theme.LifeLine" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme (Material 3 Dark Tactical). -->
+    <style name="Base.Theme.LifeLine" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:statusBarColor">@color/bg_dark</item>
+        <item name="android:navigationBarColor">@color/bg_dark</item>
+        <item name="android:windowBackground">@color/bg_dark</item>
+
+        <item name="colorPrimary">@color/amber_primary</item>
+        <item name="colorOnPrimary">@color/bg_dark</item>
+        <item name="colorSecondary">@color/sos_red</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="colorSurface">@color/surface_dark</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorSurfaceVariant">@color/surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
+
+        <item name="materialAlertDialogTheme">@style/Theme.LifeLine.Dialog</item>
     </style>
 
     <style name="Theme.LifeLine" parent="Base.Theme.LifeLine" />
+
+    <style name="Theme.LifeLine.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.LifeLine.Dialog</item>
+        <item name="colorSurface">@color/surface_variant</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+    </style>
+
+    <style name="ShapeAppearance.LifeLine.Dialog" parent="">
+        <item name="cornerSize">20dp</item>
+    </style>
 </resources>

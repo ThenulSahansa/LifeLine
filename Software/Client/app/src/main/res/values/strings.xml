@@ -1,14 +1,44 @@
 <resources>
     <string name="app_name">Life Line</string>
-    <string name="terminal_title">Terminal</string>
-    <string name="terminal_date_placeholder">YYYY/MM/DD HH:MM</string>
-    <string name="terminal_battery">Disconnected</string>
-    <string name="input_hint_name">Type message…</string>
-    <string name="send_button_label">&gt;</string>
-    <string name="bt_disconnected">Disconnected</string>
+    <string name="app_title">LIFE LINE</string>
+    <string name="mesh_dispatch_tag">OFF-GRID MESH DISPATCH</string>
+
+    <string name="logo_desc">Life Line Logo</string>
+    <string name="bluetooth_desc">Bluetooth</string>
+    <string name="gps_sensor_desc">GPS Sensor</string>
+
+    <string name="bt_disconnected">Disconnected — Tap to Connect</string>
     <string name="bt_connecting">Connecting…</string>
-    <string name="bt_connected">Connected</string>
-    <string name="select_bluetooth_device">Select Bluetooth Device</string>
+    <string name="bt_connected">Connected: %1$s</string>
+
+    <string name="gps_acquiring">GPS: Acquiring Fix…</string>
+    <string name="gps_format">GPS: %.6f, %.6f</string>
+
+    <string name="dispatch_profiles_title">EMERGENCY DISPATCH PROFILES</string>
+    <string name="dispatch_profiles_subtitle">Tap profile to add details &amp; transmit over mesh</string>
+
+    <string name="sos_title_format">🚨 %1$s</string>
+    <string name="default_broadcast_label">DEFAULT BROADCAST MESSAGE</string>
+    <string name="priority_one">PRIORITY 1</string>
+    <string name="transmit_sos">Transmit SOS</string>
+    <string name="additional_details_hint">Additional situational details (optional)</string>
+    <string name="type_of_emergency_hint">Type of Emergency (e.g. Landslide, Search)</string>
+    <string name="description_hint">Description / additional details</string>
+
+    <string name="sos_medical_text">❤️ MEDICAL\nCritical Injury</string>
+    <string name="sos_fire_text">🔥 FIRE\nStructure/Wildfire</string>
+    <string name="sos_security_text">🛡️ SECURITY\nHostile Threat</string>
+    <string name="sos_trapped_text">💀 TRAPPED\nRubble / Rescue</string>
+    <string name="sos_hazmat_text">⚡ HAZMAT\nGas / Chemical</string>
+    <string name="sos_flood_text">🌊 FLOOD\nSevere Flooding</string>
+    <string name="sos_weather_text">🌪️ WEATHER\nExtreme Storm</string>
+    <string name="sos_supplies_text">💧 SUPPLIES\nFood &amp; Water</string>
+    <string name="sos_extraction_text">📍 EXTRACTION\nEmergency Evac</string>
+    <string name="sos_other_text">⚠️ OTHER\nCustom Emergency</string>
+
+    <string name="sos_medical_title">MEDICAL</string>
+    <string name="default_medical_message">We need Medical assistance (Critical Injury)</string>
+
+    <string name="select_bluetooth_device">Select Bluetooth Node</string>
     <string name="no_paired_devices">No paired Bluetooth devices found</string>
-    <string name="sos_button_text">🚨 SOS</string>
 </resources>
