@@ -16,6 +16,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Button
@@ -56,16 +57,19 @@ class MainActivity : AppCompatActivity() {
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
-            val isGps = location.provider == LocationManager.GPS_PROVIDER
-            if (isGps || (currentLocation == null)) {
+            if (isBetterLocation(location, currentLocation)) {
                 currentLocation = location
                 runOnUiThread {
                     updateGpsDisplay()
                 }
             }
         }
-        override fun onProviderEnabled(provider: String) {}
-        override fun onProviderDisabled(provider: String) {}
+        override fun onProviderEnabled(provider: String) {
+            startGpsUpdates()
+        }
+        override fun onProviderDisabled(provider: String) {
+            updateGpsDisplay()
+        }
     }
 
     private val bluetoothReceiver = object : BroadcastReceiver() {
@@ -91,6 +95,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bluetoothStatusText: TextView
     private lateinit var bluetoothIcon: ImageView
     private lateinit var statusBadgeDot: TextView
+    private lateinit var gpsStatusContainer: View
     private lateinit var gpsStatusText: TextView
 
     @Volatile
@@ -140,6 +145,7 @@ class MainActivity : AppCompatActivity() {
         bluetoothStatusText = findViewById(R.id.textView2)
         bluetoothIcon = findViewById(R.id.bluetoothIcon)
         statusBadgeDot = findViewById(R.id.statusBadgeDot)
+        gpsStatusContainer = findViewById(R.id.gpsStatusContainer)
         gpsStatusText = findViewById(R.id.gpsStatusText)
 
         // Register Bluetooth Discovery Receiver
@@ -153,7 +159,17 @@ class MainActivity : AppCompatActivity() {
             onStatusClicked()
         }
 
+        gpsStatusContainer.setOnClickListener {
+            onGpsChipClicked()
+        }
+
         checkAndRequestInitialPermissions()
+        updateGpsDisplay()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        startGpsUpdates()
         updateGpsDisplay()
     }
 
@@ -257,36 +273,59 @@ class MainActivity : AppCompatActivity() {
         val locMgr = locationManager ?: return
         val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (hasFine || hasCoarse) {
-            try {
-                if (locMgr.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                    locMgr.requestLocationUpdates(
-                        LocationManager.GPS_PROVIDER,
-                        2000L,
-                        1f,
-                        locationListener,
-                    )
-                    val lastGps = locMgr.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                    if (lastGps != null) {
-                        currentLocation = lastGps
-                        updateGpsDisplay()
-                    }
-                } else if (locMgr.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                    locMgr.requestLocationUpdates(
-                        LocationManager.NETWORK_PROVIDER,
-                        2000L,
-                        1f,
-                        locationListener,
-                    )
-                    val lastNet = locMgr.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                    if (lastNet != null) {
-                        currentLocation = lastNet
-                        updateGpsDisplay()
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+
+        if (!hasFine && !hasCoarse) return
+
+        try {
+            var bestLastLocation: Location? = null
+
+            // 1. Request GPS Provider (Satellite)
+            if (locMgr.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locMgr.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER,
+                    1000L,
+                    1f,
+                    locationListener,
+                )
+                bestLastLocation = locMgr.getLastKnownLocation(LocationManager.GPS_PROVIDER)
             }
+
+            // 2. Request Network Provider (Cell/Wi-Fi - crucial indoors & fast fixes!)
+            if (locMgr.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locMgr.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER,
+                    1000L,
+                    1f,
+                    locationListener,
+                )
+                val lastNet = locMgr.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                if ((lastNet != null) && isBetterLocation(lastNet, bestLastLocation)) {
+                    bestLastLocation = lastNet
+                }
+            }
+
+            // 3. Request Passive Provider
+            if (locMgr.isProviderEnabled(LocationManager.PASSIVE_PROVIDER)) {
+                try {
+                    locMgr.requestLocationUpdates(
+                        LocationManager.PASSIVE_PROVIDER,
+                        1000L,
+                        1f,
+                        locationListener,
+                    )
+                    val lastPassive = locMgr.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+                    if ((lastPassive != null) && isBetterLocation(lastPassive, bestLastLocation)) {
+                        bestLastLocation = lastPassive
+                    }
+                } catch (_: Exception) {}
+            }
+
+            if ((bestLastLocation != null) && isBetterLocation(bestLastLocation, currentLocation)) {
+                currentLocation = bestLastLocation
+                updateGpsDisplay()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -298,22 +337,71 @@ class MainActivity : AppCompatActivity() {
         val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-        val loc = currentLocation
-            ?: locationManager?.takeIf {
-                hasFine || hasCoarse
-            }?.let { locMgr ->
-                try {
-                    locMgr.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                        ?: locMgr.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                } catch (_: Exception) {
-                    null
-                }
-            }
+        if (!hasFine && !hasCoarse) {
+            return "GPS: Permission Required"
+        }
+
+        val locMgr = locationManager
+        val isGpsEnabled = locMgr?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true
+        val isNetworkEnabled = locMgr?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) == true
+
+        if (!isGpsEnabled && !isNetworkEnabled) {
+            return "GPS: Location Disabled (Tap to Enable)"
+        }
+
+        val loc = currentLocation ?: getBestLastKnownLocation()
 
         return if (loc != null) {
             String.format(Locale.US, "GPS: %.6f, %.6f", loc.latitude, loc.longitude)
         } else {
             getString(R.string.gps_acquiring)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun getBestLastKnownLocation(): Location? {
+        val locMgr = locationManager ?: return null
+        var best: Location? = null
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        for (p in providers) {
+            try {
+                if (locMgr.isProviderEnabled(p)) {
+                    val l = locMgr.getLastKnownLocation(p)
+                    if ((l != null) && isBetterLocation(l, best)) {
+                        best = l
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return best
+    }
+
+    private fun isBetterLocation(location: Location, currentBestLocation: Location?): Boolean {
+        if (currentBestLocation == null) return true
+        val timeDelta = location.time - currentBestLocation.time
+        if (timeDelta > 60_000) return true
+        if (timeDelta < -60_000) return false
+
+        val accuracyDelta = (location.accuracy - currentBestLocation.accuracy).toInt()
+        val isMoreAccurate = accuracyDelta < 0
+        return isMoreAccurate || ((timeDelta > 0) && (accuracyDelta <= 200) && (location.provider == currentBestLocation.provider))
+    }
+
+    private fun onGpsChipClicked() {
+        val locMgr = locationManager
+        val isGpsEnabled = locMgr?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true
+        val isNetworkEnabled = locMgr?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) == true
+
+        if (!isGpsEnabled && !isNetworkEnabled) {
+            try {
+                startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            } catch (e: Exception) {
+                Toast.makeText(this, "Unable to open location settings: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            startGpsUpdates()
+            updateGpsDisplay()
+            Toast.makeText(this, "Refreshing location fix...", Toast.LENGTH_SHORT).show()
         }
     }
 
