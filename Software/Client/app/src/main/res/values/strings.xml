@@ -41,4 +41,9 @@
 
     <string name="select_bluetooth_device">Select Bluetooth Node</string>
     <string name="no_paired_devices">No paired Bluetooth devices found</string>
+
+    <string name="terminal_toggle_desc">Bluetooth Serial Terminal</string>
+    <string name="terminal_title">📡 BLE SERIAL TERMINAL</string>
+    <string name="close_terminal_desc">Close Terminal</string>
+    <string name="terminal_ready">[SYSTEM] BLE Serial Terminal Ready.\n</string>
 </resources>

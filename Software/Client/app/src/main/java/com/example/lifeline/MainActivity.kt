@@ -4,23 +4,32 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCallback
+import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothSocket
-import android.content.BroadcastReceiver
-import android.content.Context
+import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
+import android.bluetooth.le.BluetoothLeScanner
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Button
 import android.widget.ImageView
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -29,31 +38,211 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
-import java.io.BufferedReader
-import java.io.IOException
-import java.io.InputStream
-import java.io.InputStreamReader
-import java.io.OutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.UUID
-import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
 
-    private val sppUuid: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+    companion object {
+        // Nordic UART Service (NUS) & Generic BLE Serial UUIDs
+        private val UART_SERVICE_UUID: UUID = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
+        private val UART_TX_CHAR_UUID: UUID = UUID.fromString("6E400002-B5A3-F393-E0A9-E50E24DCCA9E") // Phone -> Node (Write)
+        private val UART_RX_CHAR_UUID: UUID = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E") // Node -> Phone (Notify)
+        private val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
+    }
 
     private var bluetoothAdapter: BluetoothAdapter? = null
-    private var bluetoothSocket: BluetoothSocket? = null
-    private var inputStream: InputStream? = null
-    private var outputStream: OutputStream? = null
+    private var bleScanner: BluetoothLeScanner? = null
+    private var bluetoothGatt: BluetoothGatt? = null
+    private var writeCharacteristic: BluetoothGattCharacteristic? = null
+    private var readCharacteristic: BluetoothGattCharacteristic? = null
 
     private var locationManager: LocationManager? = null
     private var currentLocation: Location? = null
 
     private val discoveredDevices = mutableListOf<BluetoothDevice>()
+    private var isScanning = false
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private lateinit var statusConnectContainer: View
+    private lateinit var bluetoothStatusText: TextView
+    private lateinit var bluetoothIcon: ImageView
+    private lateinit var statusBadgeDot: TextView
+    private lateinit var gpsStatusContainer: View
+    private lateinit var gpsStatusText: TextView
+
+    private lateinit var btnToggleTerminal: View
+    private lateinit var terminalOverlayCard: View
+    private lateinit var btnCloseTerminal: View
+    private lateinit var terminalLogTextView: TextView
+    private lateinit var terminalScrollView: ScrollView
+
+    @Volatile
+    private var isConnected = false
+
+    private val scanCallback = object : ScanCallback() {
+        @SuppressLint("MissingPermission")
+        override fun onScanResult(callbackType: Int, result: ScanResult?) {
+            val device = result?.device ?: return
+            if (!discoveredDevices.contains(device)) {
+                discoveredDevices.add(device)
+                val devName = try { device.name ?: device.address } catch (_: SecurityException) { device.address }
+                appendTerminalLog("SCAN", "Found BLE Device: $devName")
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        override fun onBatchScanResults(results: MutableList<ScanResult>?) {
+            results?.forEach { result ->
+                val device = result.device
+                if (!discoveredDevices.contains(device)) {
+                    discoveredDevices.add(device)
+                    val devName = try { device.name ?: device.address } catch (_: SecurityException) { device.address }
+                    appendTerminalLog("SCAN", "Found BLE Device: $devName")
+                }
+            }
+        }
+
+        override fun onScanFailed(errorCode: Int) {
+            appendTerminalLog("SCAN_ERR", "BLE Scan failed code: $errorCode")
+            runOnUiThread {
+                Toast.makeText(this@MainActivity, "BLE Scan failed code: $errorCode", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private val gattCallback = object : BluetoothGattCallback() {
+        @SuppressLint("MissingPermission")
+        override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
+            val deviceName = try {
+                gatt?.device?.name ?: gatt?.device?.address ?: "Device"
+            } catch (_: SecurityException) {
+                "Device"
+            }
+
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                isConnected = true
+                appendTerminalLog("CONNECT", "Connected to GATT Server: $deviceName")
+                runOnUiThread {
+                    updateStatus(getString(R.string.bt_connected, deviceName))
+                    Toast.makeText(this@MainActivity, "Connected to $deviceName", Toast.LENGTH_SHORT).show()
+                }
+                gatt?.discoverServices()
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                val wasConnected = isConnected
+                isConnected = false
+                appendTerminalLog("DISCONNECT", "Disconnected from $deviceName (Status: $status)")
+                closeCurrentConnection()
+                runOnUiThread {
+                    updateStatus(getString(R.string.bt_disconnected))
+                    if (wasConnected) {
+                        Toast.makeText(this@MainActivity, "Disconnected from $deviceName", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
+            if ((status == BluetoothGatt.GATT_SUCCESS) && (gatt != null)) {
+                val service = gatt.getService(UART_SERVICE_UUID)
+                if (service != null) {
+                    writeCharacteristic = service.getCharacteristic(UART_TX_CHAR_UUID)
+                    readCharacteristic = service.getCharacteristic(UART_RX_CHAR_UUID)
+                    appendTerminalLog("GATT", "Matched Nordic UART Service (NUS)")
+                } else {
+                    appendTerminalLog("GATT", "NUS Service not found. Searching fallback characteristics...")
+                    for (s in gatt.services) {
+                        for (c in s.characteristics) {
+                            if ((writeCharacteristic == null) &&
+                                ((c.properties and (BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)) != 0)
+                            ) {
+                                writeCharacteristic = c
+                            }
+                            if ((readCharacteristic == null) &&
+                                ((c.properties and (BluetoothGattCharacteristic.PROPERTY_NOTIFY or BluetoothGattCharacteristic.PROPERTY_INDICATE)) != 0)
+                            ) {
+                                readCharacteristic = c
+                            }
+                        }
+                    }
+                }
+
+                appendTerminalLog("GATT", "TX Write Char: ${writeCharacteristic?.uuid ?: "None"}")
+                appendTerminalLog("GATT", "RX Notify Char: ${readCharacteristic?.uuid ?: "None"}")
+
+                // Enable Notification on Read/RX Characteristic
+                readCharacteristic?.let { char ->
+                    gatt.setCharacteristicNotification(char, true)
+                    val descriptor = char.getDescriptor(CCCD_UUID)
+                    if (descriptor != null) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                            @Suppress("DEPRECATION")
+                            gatt.writeDescriptor(descriptor)
+                        }
+                        appendTerminalLog("GATT", "Subscribed to BLE serial notifications")
+                    }
+                }
+            } else {
+                appendTerminalLog("GATT_ERR", "Service discovery failed with status: $status")
+            }
+        }
+
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray,
+        ) {
+            handleIncomingData(value)
+        }
+
+        @Deprecated("Deprecated in API 33")
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt?,
+            characteristic: BluetoothGattCharacteristic?,
+        ) {
+            @Suppress("DEPRECATION")
+            val value = characteristic?.value ?: return
+            handleIncomingData(value)
+        }
+    }
+
+    private fun handleIncomingData(value: ByteArray) {
+        val message = String(value, Charsets.UTF_8).trim()
+        if (message.isNotEmpty()) {
+            appendTerminalLog("RX", message)
+            runOnUiThread {
+                MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
+                    .setTitle("📡 Incoming Mesh Message")
+                    .setMessage(message)
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+        }
+    }
+
+    private fun appendTerminalLog(tag: String, message: String) {
+        val timestamp = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
+        val logEntry = "[$timestamp] [$tag] $message\n"
+        runOnUiThread {
+            if (::terminalLogTextView.isInitialized) {
+                terminalLogTextView.append(logEntry)
+                terminalScrollView.post {
+                    terminalScrollView.fullScroll(View.FOCUS_DOWN)
+                }
+            }
+        }
+    }
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
@@ -72,38 +261,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private val bluetoothReceiver = object : BroadcastReceiver() {
-        @SuppressLint("MissingPermission")
-        override fun onReceive(context: Context?, intent: Intent?) {
-            when (intent?.action) {
-                BluetoothDevice.ACTION_FOUND -> {
-                    val device: BluetoothDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                    }
-                    if ((device != null) && !discoveredDevices.contains(device)) {
-                        discoveredDevices.add(device)
-                    }
-                }
-            }
-        }
-    }
-
-    private lateinit var statusConnectContainer: View
-    private lateinit var bluetoothStatusText: TextView
-    private lateinit var bluetoothIcon: ImageView
-    private lateinit var statusBadgeDot: TextView
-    private lateinit var gpsStatusContainer: View
-    private lateinit var gpsStatusText: TextView
-
-    @Volatile
-    private var isConnected = false
-
-    private val executor = Executors.newSingleThreadExecutor()
-    private val readExecutor = Executors.newSingleThreadExecutor()
-
     private val requestPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { permissions ->
@@ -112,7 +269,7 @@ class MainActivity : AppCompatActivity() {
             startGpsUpdates()
             checkPermissionsAndConnect()
         } else {
-            Toast.makeText(this, "Permissions are required for Bluetooth and GPS", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Permissions are required for Bluetooth BLE and GPS", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -148,9 +305,26 @@ class MainActivity : AppCompatActivity() {
         gpsStatusContainer = findViewById(R.id.gpsStatusContainer)
         gpsStatusText = findViewById(R.id.gpsStatusText)
 
-        // Register Bluetooth Discovery Receiver
-        val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
-        registerReceiver(bluetoothReceiver, filter)
+        btnToggleTerminal = findViewById(R.id.btnToggleTerminal)
+        terminalOverlayCard = findViewById(R.id.terminalOverlayCard)
+        btnCloseTerminal = findViewById(R.id.btnCloseTerminal)
+        terminalLogTextView = findViewById(R.id.terminalLogTextView)
+        terminalScrollView = findViewById(R.id.terminalScrollView)
+
+        btnToggleTerminal.setOnClickListener {
+            if (terminalOverlayCard.isVisible) {
+                terminalOverlayCard.visibility = View.GONE
+            } else {
+                terminalOverlayCard.visibility = View.VISIBLE
+                terminalScrollView.post {
+                    terminalScrollView.fullScroll(View.FOCUS_DOWN)
+                }
+            }
+        }
+
+        btnCloseTerminal.setOnClickListener {
+            terminalOverlayCard.visibility = View.GONE
+        }
 
         // SOS Buttons Setup (10 Emergency Profiles)
         setupSosButtons()
@@ -279,7 +453,7 @@ class MainActivity : AppCompatActivity() {
         try {
             var bestLastLocation: Location? = null
 
-            // 1. Request GPS Provider (Satellite)
+            // 1. Request GPS Provider
             if (locMgr.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locMgr.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
@@ -290,7 +464,7 @@ class MainActivity : AppCompatActivity() {
                 bestLastLocation = locMgr.getLastKnownLocation(LocationManager.GPS_PROVIDER)
             }
 
-            // 2. Request Network Provider (Cell/Wi-Fi - crucial indoors & fast fixes!)
+            // 2. Request Network Provider
             if (locMgr.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 locMgr.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER,
@@ -405,14 +579,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun sendBluetoothMessage(message: String) {
         val gpsInfo = getGpsString()
         val fullMessage = "$message | $gpsInfo"
 
-        if ((!isConnected) || (outputStream == null)) {
+        val gatt = bluetoothGatt
+        val writeChar = writeCharacteristic
+
+        if (!isConnected || (gatt == null) || (writeChar == null)) {
+            appendTerminalLog("TX_ERR", "Attempted transmit while disconnected")
             MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
                 .setTitle("🚨 SOS Broadcast Prepared")
-                .setMessage("$fullMessage\n\n⚠️ Mesh Bluetooth is currently disconnected. Tap 'Connect' to pair with a nearest node and transmit.")
+                .setMessage("$fullMessage\n\n⚠️ Mesh Bluetooth BLE is currently disconnected. Tap 'Connect' to pair with nearest node and transmit.")
                 .setPositiveButton("Connect Device") { _, _ ->
                     checkPermissionsAndConnect()
                 }
@@ -421,33 +600,43 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        executor.execute {
-            try {
-                val data = "$fullMessage\r\n".toByteArray(Charsets.UTF_8)
-                outputStream?.write(data)
-                outputStream?.flush()
+        val data = "$fullMessage\r\n".toByteArray(Charsets.UTF_8)
 
-                runOnUiThread {
-                    Toast.makeText(this, "🚨 SOS Broadcast Transmitted over Mesh!", Toast.LENGTH_LONG).show()
-                }
-            } catch (e: IOException) {
-                e.printStackTrace()
-                runOnUiThread {
-                    Toast.makeText(this, "Transmission Failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                }
-            }
+        val writeType = if ((writeChar.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
+            BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+        } else {
+            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        }
+
+        appendTerminalLog("TX", fullMessage)
+
+        val success = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            gatt.writeCharacteristic(writeChar, data, writeType) == BluetoothStatusCodes.SUCCESS
+        } else {
+            @Suppress("DEPRECATION")
+            writeChar.value = data
+            writeChar.writeType = writeType
+            @Suppress("DEPRECATION")
+            gatt.writeCharacteristic(writeChar)
+        }
+
+        if (success) {
+            Toast.makeText(this, "🚨 SOS Broadcast Transmitted over BLE Mesh!", Toast.LENGTH_LONG).show()
+        } else {
+            appendTerminalLog("TX_ERR", "Write characteristic failed")
+            Toast.makeText(this, "Transmission Failed", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun onStatusClicked() {
         if (isConnected) {
             MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
-                .setTitle("Bluetooth Connected")
-                .setMessage("Currently connected to mesh node. Do you want to disconnect?")
+                .setTitle("Bluetooth BLE Connected")
+                .setMessage("Currently connected to mesh BLE node. Do you want to disconnect?")
                 .setPositiveButton("Disconnect") { _, _ ->
                     closeCurrentConnection()
                     updateStatus(getString(R.string.bt_disconnected))
-                    Toast.makeText(this, "Disconnected from Bluetooth device.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Disconnected from BLE device.", Toast.LENGTH_SHORT).show()
                 }
                 .setNeutralButton("Switch Node") { _, _ ->
                     checkPermissionsAndConnect()
@@ -462,7 +651,7 @@ class MainActivity : AppCompatActivity() {
     private fun checkPermissionsAndConnect() {
         val adapter = bluetoothAdapter
         if (adapter == null) {
-            Toast.makeText(this, "Bluetooth hardware is not supported on this device.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Bluetooth BLE hardware is not supported on this device.", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -485,7 +674,7 @@ class MainActivity : AppCompatActivity() {
         if (!isEnabled) {
             MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
                 .setTitle("Bluetooth Turned Off")
-                .setMessage("Bluetooth is currently turned off on your device. Turn it on to scan for nearby mesh nodes?")
+                .setMessage("Bluetooth is currently turned off on your device. Turn it on to scan for nearby mesh BLE nodes?")
                 .setPositiveButton("Turn On") { _, _ ->
                     try {
                         val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
@@ -499,6 +688,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        startBleScan()
         showDeviceSelectionDialog()
     }
 
@@ -518,35 +708,63 @@ class MainActivity : AppCompatActivity() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun showDeviceSelectionDialog() {
+    private fun startBleScan() {
         val adapter = bluetoothAdapter ?: return
+        if (isScanning) return
 
-        try {
-            if (adapter.isDiscovering) {
-                adapter.cancelDiscovery()
-            }
-            adapter.startDiscovery()
-        } catch (_: SecurityException) {}
+        bleScanner = adapter.bluetoothLeScanner
+        if (bleScanner == null) return
 
-        val pairedDevices = try {
+        discoveredDevices.clear()
+
+        // Include paired / bonded BLE devices initially
+        val bonded = try {
             adapter.bondedDevices?.toList() ?: emptyList()
         } catch (_: SecurityException) {
             emptyList()
         }
+        discoveredDevices.addAll(bonded)
 
-        val combinedDevices = mutableListOf<BluetoothDevice>()
-        combinedDevices.addAll(pairedDevices)
-        discoveredDevices.forEach { dev ->
-            if (!combinedDevices.contains(dev)) {
-                combinedDevices.add(dev)
-            }
+        isScanning = true
+        appendTerminalLog("SCAN", "Started BLE LE Scan...")
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+
+        try {
+            bleScanner?.startScan(null, settings, scanCallback)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            appendTerminalLog("SCAN_ERR", "Failed to start scan: ${e.localizedMessage}")
         }
+
+        // Auto stop scanning after 8 seconds
+        mainHandler.postDelayed(
+            { stopBleScan() },
+            8000L,
+        )
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun stopBleScan() {
+        if (isScanning) {
+            isScanning = false
+            appendTerminalLog("SCAN", "Stopped BLE LE Scan")
+            try {
+                bleScanner?.stopScan(scanCallback)
+            } catch (_: Exception) {}
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun showDeviceSelectionDialog() {
+        val combinedDevices = discoveredDevices.toList()
 
         if (combinedDevices.isEmpty()) {
             MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
-                .setTitle("📡 Nearby Bluetooth Devices")
-                .setMessage("Scanning for nearest Bluetooth & LoRa mesh nodes...\n\nEnsure your device is powered on and in range.")
-                .setPositiveButton("Scan Again") { _, _ ->
+                .setTitle("📡 Scanning BLE Mesh Nodes...")
+                .setMessage("Scanning for nearby Bluetooth Low Energy (BLE) nodes...\n\nEnsure your BLE node is powered on and advertising.")
+                .setPositiveButton("Rescan") { _, _ ->
                     checkPermissionsAndConnect()
                 }
                 .setNegativeButton("Cancel", null)
@@ -555,9 +773,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         val deviceNames = combinedDevices.map { device ->
-            val name = try { device.name } catch (_: SecurityException) { null } ?: "Unknown Device"
+            val name = try { device.name } catch (_: SecurityException) { null } ?: "Unknown BLE Device"
             val bondedText = try {
-                if (device.bondState == BluetoothDevice.BOND_BONDED) "[Paired]" else "[Nearby]"
+                if (device.bondState == BluetoothDevice.BOND_BONDED) "[Paired]" else "[Discovered BLE]"
             } catch (_: SecurityException) { "" }
             "$name $bondedText\n${device.address}"
         }.toTypedArray()
@@ -567,7 +785,7 @@ class MainActivity : AppCompatActivity() {
             .setItems(deviceNames) { _, which ->
                 connectToDevice(combinedDevices[which])
             }
-            .setNeutralButton("🔄 Scan Again") { _, _ ->
+            .setNeutralButton("🔄 Rescan") { _, _ ->
                 checkPermissionsAndConnect()
             }
             .setNegativeButton("Cancel", null)
@@ -582,66 +800,14 @@ class MainActivity : AppCompatActivity() {
             device.address
         }
 
+        stopBleScan()
         updateStatus("Connecting to $deviceName...")
+        appendTerminalLog("CONNECT", "Connecting to GATT Server: $deviceName (${device.address})")
 
-        executor.execute {
-            try {
-                closeCurrentConnection()
+        closeCurrentConnection()
 
-                try {
-                    bluetoothAdapter?.cancelDiscovery()
-                } catch (_: SecurityException) {}
-
-                bluetoothSocket = device.createRfcommSocketToServiceRecord(sppUuid)
-                bluetoothSocket?.connect()
-
-                inputStream = bluetoothSocket?.inputStream
-                outputStream = bluetoothSocket?.outputStream
-                isConnected = true
-
-                runOnUiThread {
-                    updateStatus(getString(R.string.bt_connected, deviceName))
-                    Toast.makeText(this, "Connected to $deviceName", Toast.LENGTH_SHORT).show()
-                }
-
-                startListeningForData()
-            } catch (e: Exception) {
-                e.printStackTrace()
-                closeCurrentConnection()
-                runOnUiThread {
-                    updateStatus(getString(R.string.bt_disconnected))
-                    Toast.makeText(this, "Failed to connect to $deviceName", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
-
-    private fun startListeningForData() {
-        readExecutor.execute {
-            val reader = BufferedReader(InputStreamReader(inputStream))
-            try {
-                while (isConnected && (bluetoothSocket?.isConnected == true)) {
-                    val line = reader.readLine() ?: break
-                    runOnUiThread {
-                        MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
-                            .setTitle("📡 Incoming Mesh Message")
-                            .setMessage(line)
-                            .setPositiveButton("OK", null)
-                            .show()
-                    }
-                }
-            } catch (e: IOException) {
-                e.printStackTrace()
-            } finally {
-                if (isConnected) {
-                    closeCurrentConnection()
-                    runOnUiThread {
-                        updateStatus(getString(R.string.bt_disconnected))
-                        Toast.makeText(this, "Bluetooth disconnected.", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
+        @Suppress("DEPRECATION")
+        bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
     }
 
     private fun updateStatus(statusText: String) {
@@ -662,36 +828,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun closeCurrentConnection() {
         isConnected = false
+        writeCharacteristic = null
+        readCharacteristic = null
         try {
-            inputStream?.close()
+            bluetoothGatt?.disconnect()
         } catch (_: Exception) {}
         try {
-            outputStream?.close()
+            bluetoothGatt?.close()
         } catch (_: Exception) {}
-        try {
-            bluetoothSocket?.close()
-        } catch (_: Exception) {}
-        inputStream = null
-        outputStream = null
-        bluetoothSocket = null
+        bluetoothGatt = null
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        try {
-            unregisterReceiver(bluetoothReceiver)
-        } catch (_: Exception) {}
+        stopBleScan()
         closeCurrentConnection()
         try {
             locationManager?.removeUpdates(locationListener)
         } catch (_: Exception) {}
-        executor.shutdown()
-        readDestroy()
-    }
-
-    private fun readDestroy() {
-        readExecutor.shutdown()
     }
 }
