@@ -110,6 +110,93 @@ void sendBleMessage(const String &message) {
 }
 
 // =========================================================================
+// MESH NETWORKING ENGINE & LOOP PREVENTION
+// =========================================================================
+
+// Checks if targetNode is present in nodeChain (space/delimiter separated)
+bool isNodeInChain(const String &chain, const String &targetNode) {
+  int start = 0;
+  int len = chain.length();
+  while (start < len) {
+    // Skip any leading whitespace or delimiters
+    while (start < len && (chain[start] == ' ' || chain[start] == '\t' || chain[start] == ',' || chain[start] == '{' || chain[start] == '}')) {
+      start++;
+    }
+    if (start >= len) break;
+    int end = start;
+    while (end < len && chain[end] != ' ' && chain[end] != '\t' && chain[end] != ',' && chain[end] != ':' && chain[end] != '}' && chain[end] != '{') {
+      end++;
+    }
+    String token = chain.substring(start, end);
+    token.trim();
+
+    if (token.equalsIgnoreCase(targetNode)) {
+      return true;
+    }
+
+    // Also match numeric values if both are numeric (e.g. "2" matches "002")
+    if (token.length() > 0 && targetNode.length() > 0) {
+      bool tokenNumeric = true;
+      for (unsigned int i = 0; i < token.length(); i++) {
+        if (!isDigit(token[i])) { tokenNumeric = false; break; }
+      }
+      bool targetNumeric = true;
+      for (unsigned int i = 0; i < targetNode.length(); i++) {
+        if (!isDigit(targetNode[i])) { targetNumeric = false; break; }
+      }
+      if (tokenNumeric && targetNumeric && token.toInt() == targetNode.toInt()) {
+        return true;
+      }
+    }
+
+    start = end;
+  }
+  return false;
+}
+
+// Inspects incoming LoRa packet and forwards SOS messages if this node is not yet in chain
+void processMeshForwarding(const String &incomingMessage) {
+  // 1. Check if packet contains [SOS]
+  int sosIndex = incomingMessage.indexOf("[SOS]");
+  if (sosIndex < 0) {
+    // Not an SOS packet, do not forward
+    return;
+  }
+
+  // 2. Extract node chain before [SOS]
+  // Standard format: <Node Chain>: [SOS] : <Payload>
+  int colonIndex = incomingMessage.lastIndexOf(':', sosIndex);
+  String nodeChain = "";
+  if (colonIndex >= 0) {
+    nodeChain = incomingMessage.substring(0, colonIndex);
+  } else {
+    nodeChain = incomingMessage.substring(0, sosIndex);
+  }
+  nodeChain.trim();
+
+  // 3. Stop circulations: if current node is already in the chain, do not forward
+  if (isNodeInChain(nodeChain, NODE_NUMBER)) {
+    Serial.print("[LoRa Mesh] Node " NODE_NUMBER " already in chain (");
+    Serial.print(nodeChain);
+    Serial.println("). Dropping packet to stop circulation.");
+    return;
+  }
+
+  // 4. Construct forwarded message by appending current node to the chain
+  String newChain = (nodeChain.length() > 0) ? (nodeChain + " " + NODE_NUMBER) : String(NODE_NUMBER);
+  String forwardedMessage = newChain + ": " + incomingMessage.substring(sosIndex);
+
+  Serial.print("[LoRa Mesh] Forwarding packet (Added " NODE_NUMBER " to chain): ");
+  Serial.println(forwardedMessage);
+
+  // 5. Random backoff delay (150ms - 350ms) to avoid collision when multiple mesh nodes forward
+  delay(random(150, 350));
+
+  sendLoRaMessage(forwardedMessage);
+}
+
+
+// =========================================================================
 // BLE & SERIAL INPUT PROCESSING ENGINE
 // =========================================================================
 void checkInputs() {
@@ -252,6 +339,9 @@ void loop() {
     // Short visible flash duration for the LED, then turn it off
     delay(100);
     digitalWrite(LED_PIN, LOW);
+
+    // Mesh network forwarding for SOS packets
+    processMeshForwarding(incomingMessage);
   }
 
   // 3. HANDLE BLE DISCONNECTION & AUTO-RESTART ADVERTISING
