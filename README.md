@@ -41,7 +41,7 @@ A LoRa-based mesh network where each node assists other devices by relaying mess
 
 ## 🔌 Pin Configuration
 
-### RA-02 LoRa to ESP32 (Survivor / Field Nodes)
+### RA-02 LoRa to ESP32 Dev Module (Survivor / Field Nodes)
 
 | RA-02 | Function | ESP32 |
 | :--- | :--- | :--- |
@@ -53,6 +53,21 @@ A LoRa-based mesh network where each node assists other devices by relaying mess
 | **NSS / CS** | SPI chip select | GPIO 5 |
 | **RESET / RST** | Radio reset | GPIO 14 |
 | **DIO0** | Interrupt | GPIO 26 |
+| *Built-in LED* | Status Indicator | GPIO 2 |
+
+### RA-02 LoRa to ESP32-C3 Super Mini
+
+| RA-02 | Function | ESP32-C3 Super Mini |
+| :--- | :--- | :--- |
+| **3.3V / VCC** | Power | 3V3 |
+| **GND** | Ground | GND |
+| **SCK** | SPI clock | GPIO 4 |
+| **MISO** | SPI data out | GPIO 5 |
+| **MOSI** | SPI data in | GPIO 6 |
+| **NSS / CS** | SPI chip select | GPIO 7 |
+| **RESET / RST** | Radio reset | GPIO 1 |
+| **DIO0** | Interrupt | GPIO 0 |
+| *Onboard LED* | Status Indicator (Active LOW) | GPIO 8 |
 
 ### RA-02 LoRa to Raspberry Pi (Command Center)
 
