@@ -19,7 +19,7 @@
 // BLE Parameters & Nordic UART Service (NUS) UUIDs matching LifeLine Android
 // App
 
-#define NODE_NUMBER = "001";
+#define NODE_NUMBER "001"
 
 const char *BLE_DEVICE_NAME = "LifeLine_Node_" NODE_NUMBER;
 
