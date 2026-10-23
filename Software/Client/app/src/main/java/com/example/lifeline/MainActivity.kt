@@ -34,8 +34,10 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
@@ -57,6 +59,10 @@ class MainActivity : AppCompatActivity() {
         private val UART_TX_CHAR_UUID: UUID = UUID.fromString("6E400002-B5A3-F393-E0A9-E50E24DCCA9E") // Phone -> Node (Write)
         private val UART_RX_CHAR_UUID: UUID = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E") // Node -> Phone (Notify)
         private val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
+
+        private const val PREFS_NAME = "lifeline_user_prefs"
+        private const val KEY_USER_NAME = "user_name"
+        private const val KEY_USER_NIC = "user_nic"
     }
 
     private var bluetoothAdapter: BluetoothAdapter? = null
@@ -159,7 +165,7 @@ class MainActivity : AppCompatActivity() {
 
         @SuppressLint("MissingPermission")
         override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS && mtu > 23) {
+            if ((status == BluetoothGatt.GATT_SUCCESS) && (mtu > 23)) {
                 currentMtu = mtu
                 appendTerminalLog("GATT", "Negotiated ATT MTU: $mtu bytes")
             } else {
@@ -340,6 +346,11 @@ class MainActivity : AppCompatActivity() {
             terminalOverlayCard.visibility = View.GONE
         }
 
+        val btnAccount = findViewById<View>(R.id.btnAccount)
+        btnAccount?.setOnClickListener {
+            showAccountInfoDialog()
+        }
+
         // SOS Buttons Setup (10 Emergency Profiles)
         setupSosButtons()
 
@@ -353,6 +364,103 @@ class MainActivity : AppCompatActivity() {
 
         checkAndRequestInitialPermissions()
         updateGpsDisplay()
+
+        // Check if user setup is complete on first launch
+        if (getUserName().isEmpty() || (getUserNic().length != 12)) {
+            showUserProfileSetupDialog(isMandatory = true)
+        }
+    }
+
+    private fun getUserName(): String {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        return prefs.getString(KEY_USER_NAME, "") ?: ""
+    }
+
+    private fun getUserNic(): String {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        return prefs.getString(KEY_USER_NIC, "") ?: ""
+    }
+
+    private fun saveUserProfile(name: String, nic: String) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        prefs.edit {
+            putString(KEY_USER_NAME, name)
+            putString(KEY_USER_NIC, nic)
+        }
+    }
+
+    private fun showUserProfileSetupDialog(isMandatory: Boolean = false) {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_user_profile, null)
+        val nameInputLayout = dialogView.findViewById<TextInputLayout>(R.id.inputLayoutName)
+        val nameEditText = dialogView.findViewById<TextInputEditText>(R.id.editTextName)
+        val nicInputLayout = dialogView.findViewById<TextInputLayout>(R.id.inputLayoutNic)
+        val nicEditText = dialogView.findViewById<TextInputEditText>(R.id.editTextNic)
+
+        nameEditText.setText(getUserName())
+        nicEditText.setText(getUserNic())
+
+        val builder = MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
+            .setView(dialogView)
+            .setCancelable(!isMandatory)
+            .setPositiveButton(R.string.save_profile, null)
+
+        if (!isMandatory) {
+            builder.setNegativeButton(android.R.string.cancel, null)
+        }
+
+        val dialog = builder.create()
+        dialog.show()
+
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val name = nameEditText.text?.toString()?.trim() ?: ""
+            val nic = nicEditText.text?.toString()?.trim() ?: ""
+
+            var isValid = true
+            if (name.isEmpty()) {
+                nameInputLayout.error = getString(R.string.invalid_name_error)
+                isValid = false
+            } else {
+                nameInputLayout.error = null
+            }
+
+            if ((nic.length != 12) || !nic.all { it.isDigit() }) {
+                nicInputLayout.error = getString(R.string.invalid_nic_error)
+                isValid = false
+            } else {
+                nicInputLayout.error = null
+            }
+
+            if (isValid) {
+                saveUserProfile(name, nic)
+                Toast.makeText(this, "Profile saved successfully", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+        }
+    }
+
+    private fun showAccountInfoDialog() {
+        val name = getUserName()
+        val nic = getUserNic()
+
+        if (name.isEmpty() || (nic.length != 12)) {
+            showUserProfileSetupDialog(isMandatory = true)
+            return
+        }
+
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_account_info, null)
+        val nameView = dialogView.findViewById<TextView>(R.id.accountViewName)
+        val nicView = dialogView.findViewById<TextView>(R.id.accountViewNic)
+
+        nameView.text = name
+        nicView.text = nic
+
+        MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
+            .setView(dialogView)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNeutralButton(R.string.edit_profile) { _, _ ->
+                showUserProfileSetupDialog(isMandatory = false)
+            }
+            .show()
     }
 
     override fun onResume() {

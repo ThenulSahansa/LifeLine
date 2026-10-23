@@ -46,4 +46,17 @@
     <string name="terminal_title">📡 BLE SERIAL TERMINAL</string>
     <string name="close_terminal_desc">Close Terminal</string>
     <string name="terminal_ready">[SYSTEM] BLE Serial Terminal Ready.\n</string>
+
+    <string name="account_desc">Account Profile</string>
+    <string name="user_account_title">👤 USER ACCOUNT</string>
+    <string name="user_account_setup_title">👤 SETUP USER ACCOUNT</string>
+    <string name="user_account_setup_subtitle">Please enter your Full Name and 12-digit NIC number.</string>
+    <string name="full_name_hint">Full Name</string>
+    <string name="nic_number_hint">NIC Number (12 digits)</string>
+    <string name="full_name_label">FULL NAME</string>
+    <string name="nic_number_label">NIC NUMBER</string>
+    <string name="save_profile">Save Profile</string>
+    <string name="edit_profile">Edit Profile</string>
+    <string name="invalid_nic_error">Please enter a valid 12-digit NIC number</string>
+    <string name="invalid_name_error">Please enter your full name</string>
 </resources>
