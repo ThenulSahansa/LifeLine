@@ -130,18 +130,7 @@ void checkInputs() {
   if (bleMessage.length() > 0) {
     Serial.print("\n[BLE RX] Received from App: ");
     Serial.println(bleMessage);
-    sendLoRaMessage(String(BLE_DEVICE_NAME) + ": " + bleMessage);
-  }
-
-  // 2. Also check USB Serial input for local testing/debugging from PC
-  if (Serial.available()) {
-    String serialInput = Serial.readStringUntil('\n');
-    serialInput.trim();
-    if (serialInput.length() > 0) {
-      Serial.print("\n[USB RX] Sending local test input: ");
-      Serial.println(serialInput);
-      sendLoRaMessage(String(BLE_DEVICE_NAME) + ": " + serialInput);
-    }
+    sendLoRaMessage(String(BLE_DEVICE_NAME) + ": [SOS] : " + bleMessage);
   }
 }
 

@@ -47,6 +47,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
+import kotlin.math.min
 
 class MainActivity : AppCompatActivity() {
 
@@ -144,7 +145,7 @@ class MainActivity : AppCompatActivity() {
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 val wasConnected = isConnected
                 isConnected = false
-        currentMtu = 23
+                currentMtu = 23
                 appendTerminalLog("DISCONNECT", "Disconnected from $deviceName (Status: $status)")
                 closeCurrentConnection()
                 runOnUiThread {
@@ -241,13 +242,6 @@ class MainActivity : AppCompatActivity() {
         val message = String(value, Charsets.UTF_8).trim()
         if (message.isNotEmpty()) {
             appendTerminalLog("RX", message)
-            runOnUiThread {
-                MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
-                    .setTitle("📡 Incoming Mesh Message")
-                    .setMessage(message)
-                    .setPositiveButton("OK", null)
-                    .show()
-            }
         }
     }
 
@@ -431,11 +425,12 @@ class MainActivity : AppCompatActivity() {
                         "OTHER ($effectiveType)"
                     }
                 } else {
+                    val categoryName = emergencyTitle.substringBefore(" ").trim()
                     val extraDetails = inputEditText.text?.toString()?.trim() ?: ""
                     if (extraDetails.isNotEmpty()) {
-                        "$baseMessage - $extraDetails"
+                        "$categoryName - $baseMessage - $extraDetails"
                     } else {
-                        baseMessage
+                        "$categoryName - $baseMessage"
                     }
                 }
                 sendSosMessage(finalMessage)
@@ -445,8 +440,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sendSosMessage(sosMessageText: String) {
-        val fullSosMessage = "SOS: $sosMessageText"
-        sendBluetoothMessage(fullSosMessage)
+        sendBluetoothMessage(sosMessageText)
     }
 
     private fun checkAndRequestInitialPermissions() {
@@ -600,9 +594,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun sendBluetoothMessage(message: String) {
+    private fun sendBluetoothMessage(sosMessageText: String) {
+        val dateTimeStr = SimpleDateFormat("dd:MM:yy HH:mm:ss", Locale.US).format(Date())
         val gpsInfo = getGpsString()
-        val fullMessage = "$message | $gpsInfo"
+        val fullMessage = "$dateTimeStr | $sosMessageText | $gpsInfo"
 
         val gatt = bluetoothGatt
         val writeChar = writeCharacteristic
@@ -636,7 +631,7 @@ class MainActivity : AppCompatActivity() {
             var allSuccess = true
 
             while (offset < data.size) {
-                val chunkLen = Math.min(maxPayload, data.size - offset)
+                val chunkLen = min(maxPayload, data.size - offset)
                 val chunk = data.copyOfRange(offset, offset + chunkLen)
 
                 val chunkSuccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
