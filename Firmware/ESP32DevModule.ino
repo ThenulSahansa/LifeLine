@@ -1,30 +1,34 @@
-#include <SPI.h>
-#include <LoRa.h>
+#include <BLE2902.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
-#include <BLE2902.h>
+#include <LoRa.h>
+#include <SPI.h>
+
 
 // =========================================================================
 // HARDWARE PIN DEFINITIONS
 // =========================================================================
-#define SS       5    
-#define RST      14  
-#define DIO0     26  
-#define LED_PIN  2 // Built-in LED on ESP32
+#define SS 5
+#define RST 14
+#define DIO0 26
+#define LED_PIN 2 // Built-in LED on ESP32
 
 // LoRa Radio Parameters
 #define LORA_FREQUENCY 433E6
 
-// BLE Parameters & Nordic UART Service (NUS) UUIDs matching LifeLine Android App
-const char* BLE_DEVICE_NAME = "LifeLine_Node_002";
-#define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-#define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E" // Phone -> Node (Write)
-#define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E" // Node -> Phone (Notify)
+// BLE Parameters & Nordic UART Service (NUS) UUIDs matching LifeLine Android
+// App
+const char *BLE_DEVICE_NAME = "LifeLine_Node_001";
+#define SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_UUID_RX                                                 \
+  "6E400002-B5A3-F393-E0A9-E50E24DCCA9E" // Phone -> Node (Write)
+#define CHARACTERISTIC_UUID_TX                                                 \
+  "6E400003-B5A3-F393-E0A9-E50E24DCCA9E" // Node -> Phone (Notify)
 
-BLEServer* pServer = nullptr;
-BLECharacteristic* pTxCharacteristic = nullptr;
-BLECharacteristic* pRxCharacteristic = nullptr;
+BLEServer *pServer = nullptr;
+BLECharacteristic *pTxCharacteristic = nullptr;
+BLECharacteristic *pRxCharacteristic = nullptr;
 
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
@@ -38,12 +42,12 @@ portMUX_TYPE bleMux = portMUX_INITIALIZER_UNLOCKED;
 // BLE CALLBACKS
 // =========================================================================
 class LifeLineServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) override {
+  void onConnect(BLEServer *pServer) override {
     deviceConnected = true;
     Serial.println("\n[BLE] Smartphone connected to LifeLine BLE node!");
   }
 
-  void onDisconnect(BLEServer* pServer) override {
+  void onDisconnect(BLEServer *pServer) override {
     deviceConnected = false;
     Serial.println("\n[BLE] Smartphone disconnected.");
   }
@@ -90,9 +94,9 @@ void sendLoRaMessage(String message) {
 // =========================================================================
 // SEND MESSAGE OVER BLE TO CONNECTED PHONE
 // =========================================================================
-void sendBleMessage(const String& message) {
+void sendBleMessage(const String &message) {
   if (deviceConnected && pTxCharacteristic != nullptr) {
-    pTxCharacteristic->setValue((uint8_t*)message.c_str(), message.length());
+    pTxCharacteristic->setValue((uint8_t *)message.c_str(), message.length());
     pTxCharacteristic->notify();
     Serial.print("[BLE] Sent notify to phone: ");
     Serial.println(message);
@@ -111,7 +115,7 @@ void checkInputs() {
     if (newlineIdx >= 0) {
       bleMessage = bleRxAccumulator.substring(0, newlineIdx);
       bleRxAccumulator = bleRxAccumulator.substring(newlineIdx + 1);
-    } else if (millis() - lastBleRxTime > 150) {
+    } else if (millis() - lastBleRxTime > 350) {
       // Idle timeout: process message even if client omitted trailing newline
       bleMessage = bleRxAccumulator;
       bleRxAccumulator = "";
@@ -140,7 +144,8 @@ void checkInputs() {
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial && millis() < 3000);
+  while (!Serial && millis() < 3000)
+    ;
 
   // Initialize Built-in LED pin
   pinMode(LED_PIN, OUTPUT);
@@ -162,17 +167,13 @@ void setup() {
 
   // Create TX Characteristic (Node -> Phone, Notify)
   pTxCharacteristic = pService->createCharacteristic(
-                        CHARACTERISTIC_UUID_TX,
-                        BLECharacteristic::PROPERTY_NOTIFY
-                      );
+      CHARACTERISTIC_UUID_TX, BLECharacteristic::PROPERTY_NOTIFY);
   pTxCharacteristic->addDescriptor(new BLE2902());
 
   // Create RX Characteristic (Phone -> Node, Write)
   pRxCharacteristic = pService->createCharacteristic(
-                        CHARACTERISTIC_UUID_RX,
-                        BLECharacteristic::PROPERTY_WRITE |
-                        BLECharacteristic::PROPERTY_WRITE_NR
-                      );
+      CHARACTERISTIC_UUID_RX,
+      BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
   pRxCharacteristic->setCallbacks(new LifeLineRxCallbacks());
 
   // Start the service
@@ -212,10 +213,10 @@ void setup() {
   }
 
   // Stable default radio profiles
-  LoRa.setTxPower(17);            
-  LoRa.setSpreadingFactor(7);      
-  LoRa.setSignalBandwidth(125E3);  
-  LoRa.setCodingRate4(5);          
+  LoRa.setTxPower(17);
+  LoRa.setSpreadingFactor(7);
+  LoRa.setSignalBandwidth(125E3);
+  LoRa.setCodingRate4(5);
 
   // Start up continuous background receiving mode
   LoRa.receive();

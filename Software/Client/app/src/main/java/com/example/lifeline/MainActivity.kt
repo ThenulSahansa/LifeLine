@@ -46,6 +46,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
 
@@ -62,6 +63,8 @@ class MainActivity : AppCompatActivity() {
     private var bluetoothGatt: BluetoothGatt? = null
     private var writeCharacteristic: BluetoothGattCharacteristic? = null
     private var readCharacteristic: BluetoothGattCharacteristic? = null
+    private var currentMtu: Int = 23
+    private val bleSendExecutor = Executors.newSingleThreadExecutor()
 
     private var locationManager: LocationManager? = null
     private var currentLocation: Location? = null
@@ -133,10 +136,15 @@ class MainActivity : AppCompatActivity() {
                     updateStatus(getString(R.string.bt_connected, deviceName))
                     Toast.makeText(this@MainActivity, "Connected to $deviceName", Toast.LENGTH_SHORT).show()
                 }
-                gatt?.discoverServices()
+                // Request MTU 517 to prevent 20-byte payload truncation
+                val mtuRequested = gatt?.requestMtu(517) ?: false
+                if (!mtuRequested) {
+                    gatt?.discoverServices()
+                }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 val wasConnected = isConnected
                 isConnected = false
+        currentMtu = 23
                 appendTerminalLog("DISCONNECT", "Disconnected from $deviceName (Status: $status)")
                 closeCurrentConnection()
                 runOnUiThread {
@@ -146,6 +154,18 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+
+        @SuppressLint("MissingPermission")
+        override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS && mtu > 23) {
+                currentMtu = mtu
+                appendTerminalLog("GATT", "Negotiated ATT MTU: $mtu bytes")
+            } else {
+                currentMtu = 23
+                appendTerminalLog("GATT", "MTU negotiation failed ($status), default to 23 bytes")
+            }
+            gatt?.discoverServices()
         }
 
         @SuppressLint("MissingPermission")
@@ -610,21 +630,46 @@ class MainActivity : AppCompatActivity() {
 
         appendTerminalLog("TX", fullMessage)
 
-        val success = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            gatt.writeCharacteristic(writeChar, data, writeType) == BluetoothStatusCodes.SUCCESS
-        } else {
-            @Suppress("DEPRECATION")
-            writeChar.value = data
-            writeChar.writeType = writeType
-            @Suppress("DEPRECATION")
-            gatt.writeCharacteristic(writeChar)
-        }
+        bleSendExecutor.execute {
+            val maxPayload = (currentMtu - 3).coerceIn(20, 512)
+            var offset = 0
+            var allSuccess = true
 
-        if (success) {
-            Toast.makeText(this, "🚨 SOS Broadcast Transmitted over BLE Mesh!", Toast.LENGTH_LONG).show()
-        } else {
-            appendTerminalLog("TX_ERR", "Write characteristic failed")
-            Toast.makeText(this, "Transmission Failed", Toast.LENGTH_SHORT).show()
+            while (offset < data.size) {
+                val chunkLen = Math.min(maxPayload, data.size - offset)
+                val chunk = data.copyOfRange(offset, offset + chunkLen)
+
+                val chunkSuccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    gatt.writeCharacteristic(writeChar, chunk, writeType) == BluetoothStatusCodes.SUCCESS
+                } else {
+                    @Suppress("DEPRECATION")
+                    writeChar.value = chunk
+                    writeChar.writeType = writeType
+                    @Suppress("DEPRECATION")
+                    gatt.writeCharacteristic(writeChar)
+                }
+
+                if (!chunkSuccess) {
+                    allSuccess = false
+                    break
+                }
+
+                offset += chunkLen
+                if (offset < data.size) {
+                    try {
+                        Thread.sleep(15)
+                    } catch (_: InterruptedException) {}
+                }
+            }
+
+            runOnUiThread {
+                if (allSuccess) {
+                    Toast.makeText(this@MainActivity, "🚨 SOS Broadcast Transmitted over BLE Mesh!", Toast.LENGTH_LONG).show()
+                } else {
+                    appendTerminalLog("TX_ERR", "Write characteristic failed")
+                    Toast.makeText(this@MainActivity, "Transmission Failed", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
@@ -831,6 +876,7 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("MissingPermission")
     private fun closeCurrentConnection() {
         isConnected = false
+        currentMtu = 23
         writeCharacteristic = null
         readCharacteristic = null
         try {
