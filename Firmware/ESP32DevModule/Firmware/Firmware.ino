@@ -18,7 +18,11 @@
 
 // BLE Parameters & Nordic UART Service (NUS) UUIDs matching LifeLine Android
 // App
-const char *BLE_DEVICE_NAME = "LifeLine_Node_002";
+
+#define NODE_NUMBER = "001";
+
+const char *BLE_DEVICE_NAME = "LifeLine_Node_" NODE_NUMBER;
+
 #define SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define CHARACTERISTIC_UUID_RX                                                 \
   "6E400002-B5A3-F393-E0A9-E50E24DCCA9E" // Phone -> Node (Write)
@@ -126,7 +130,7 @@ void checkInputs() {
   if (bleMessage.length() > 0) {
     Serial.print("\n[BLE RX] Received from App: ");
     Serial.println(bleMessage);
-    sendLoRaMessage(String(BLE_DEVICE_NAME) + ": [SOS] : " + bleMessage);
+    sendLoRaMessage(String(NODE_NUMBER) + ": [SOS] : " + bleMessage);
   }
 }
 
@@ -140,7 +144,7 @@ void setup() {
   digitalWrite(LED_PIN, LOW);
 
   Serial.println("\n=============================================");
-  Serial.println("--- BOOTING LIFELINE BLE + LORA NODE ---");
+  Serial.println("--- BOOTING LIFELINE NODE ---");
   Serial.println("=============================================");
 
   // 1. Initialize Bluetooth Low Energy (BLE)
