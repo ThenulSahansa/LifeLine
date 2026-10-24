@@ -113,6 +113,34 @@ void sendBleMessage(const String &message) {
 // MESH NETWORKING ENGINE & LOOP PREVENTION
 // =========================================================================
 
+// =========================================================================
+// SENT MESSAGE TRACKING BUFFER (FOR ACK MATCHING)
+// =========================================================================
+#define MAX_SENT_MSGS 64
+String sentMsgIds[MAX_SENT_MSGS];
+int sentMsgCount = 0;
+
+void recordSentMessageId(const String &msgId) {
+  if (msgId.length() == 0) return;
+  sentMsgIds[sentMsgCount % MAX_SENT_MSGS] = msgId;
+  sentMsgCount++;
+  Serial.print("[LoRa Mesh] Recorded outbound Message ID: ");
+  Serial.println(msgId);
+}
+
+bool isOurSentMessage(const String &ackId) {
+  if (ackId.length() == 0) return false;
+  int limit = (sentMsgCount < MAX_SENT_MSGS) ? sentMsgCount : MAX_SENT_MSGS;
+  for (int i = 0; i < limit; i++) {
+    if (sentMsgIds[i].length() > 0) {
+      if (sentMsgIds[i] == ackId || ackId.indexOf(sentMsgIds[i]) >= 0 || sentMsgIds[i].indexOf(ackId) >= 0) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // Checks if targetNode is present in nodeChain (space/delimiter separated)
 bool isNodeInChain(const String &chain, const String &targetNode) {
   int start = 0;
@@ -154,45 +182,96 @@ bool isNodeInChain(const String &chain, const String &targetNode) {
   return false;
 }
 
-// Inspects incoming LoRa packet and forwards SOS messages if this node is not yet in chain
+// Inspects incoming LoRa packet and forwards SOS/ACK messages if this node is not yet in chain
 void processMeshForwarding(const String &incomingMessage) {
-  // 1. Check if packet contains [SOS]
+  // 1. Process SOS Emergency Broadcasts
   int sosIndex = incomingMessage.indexOf("[SOS]");
-  if (sosIndex < 0) {
-    // Not an SOS packet, do not forward
+  if (sosIndex >= 0) {
+    // Extract node chain before [SOS]
+    // Standard format: <Node Chain>: [SOS] : <Payload>
+    int colonIndex = incomingMessage.lastIndexOf(':', sosIndex);
+    String nodeChain = "";
+    if (colonIndex >= 0) {
+      nodeChain = incomingMessage.substring(0, colonIndex);
+    } else {
+      nodeChain = incomingMessage.substring(0, sosIndex);
+    }
+    nodeChain.trim();
+
+    // Stop circulations: if current node is already in the chain, do not forward
+    if (isNodeInChain(nodeChain, NODE_NUMBER)) {
+      Serial.print("[LoRa Mesh] Node " NODE_NUMBER " already in chain (");
+      Serial.print(nodeChain);
+      Serial.println("). Dropping packet to stop circulation.");
+      return;
+    }
+
+    // Construct forwarded message by appending current node to the chain
+    String newChain = (nodeChain.length() > 0) ? (nodeChain + " " + NODE_NUMBER) : String(NODE_NUMBER);
+    String forwardedMessage = newChain + ": " + incomingMessage.substring(sosIndex);
+
+    Serial.print("[LoRa Mesh] Forwarding SOS (Added " NODE_NUMBER " to chain): ");
+    Serial.println(forwardedMessage);
+
+    // Random backoff delay (150ms - 350ms) to avoid collision when multiple mesh nodes forward
+    delay(random(150, 350));
+    sendLoRaMessage(forwardedMessage);
     return;
   }
 
-  // 2. Extract node chain before [SOS]
-  // Standard format: <Node Chain>: [SOS] : <Payload>
-  int colonIndex = incomingMessage.lastIndexOf(':', sosIndex);
-  String nodeChain = "";
-  if (colonIndex >= 0) {
-    nodeChain = incomingMessage.substring(0, colonIndex);
-  } else {
-    nodeChain = incomingMessage.substring(0, sosIndex);
-  }
-  nodeChain.trim();
+  // 2. Process ACK Delivery Confirmations
+  int ackIndex = incomingMessage.indexOf("[ACK]");
+  if (ackIndex >= 0) {
+    // Format: <Node chain>: [ACK] : <base85 msgId>
+    int colonAfterAck = incomingMessage.indexOf(':', ackIndex + 5);
+    String ackId = (colonAfterAck >= 0) ? incomingMessage.substring(colonAfterAck + 1) : incomingMessage.substring(ackIndex + 5);
+    ackId.trim();
 
-  // 3. Stop circulations: if current node is already in the chain, do not forward
-  if (isNodeInChain(nodeChain, NODE_NUMBER)) {
-    Serial.print("[LoRa Mesh] Node " NODE_NUMBER " already in chain (");
-    Serial.print(nodeChain);
-    Serial.println("). Dropping packet to stop circulation.");
+    // Strip wrapping braces or quotes if present
+    while (ackId.length() > 0 && (ackId[0] == '<' || ackId[0] == '{' || ackId[0] == ' ')) {
+      ackId = ackId.substring(1);
+    }
+    while (ackId.length() > 0 && (ackId[ackId.length() - 1] == '>' || ackId[ackId.length() - 1] == '}' || ackId[ackId.length() - 1] == ' ')) {
+      ackId = ackId.substring(0, ackId.length() - 1);
+    }
+    ackId.trim();
+
+    // If the ACK is for our current node, mark delivered and DROP message
+    if (isOurSentMessage(ackId)) {
+      Serial.print("[LoRa Mesh] [ACK] Delivery confirmed for our message ID: ");
+      Serial.println(ackId);
+      Serial.println("[LoRa Mesh] [ACK] Dropping packet (reached destination originator).");
+      return;
+    }
+
+    // If the message is not for us, forward it across the mesh
+    int colonBeforeAck = incomingMessage.lastIndexOf(':', ackIndex);
+    String nodeChain = "";
+    if (colonBeforeAck >= 0) {
+      nodeChain = incomingMessage.substring(0, colonBeforeAck);
+    } else {
+      nodeChain = incomingMessage.substring(0, ackIndex);
+    }
+    nodeChain.trim();
+
+    // Stop circulation loops for ACK
+    if (isNodeInChain(nodeChain, NODE_NUMBER)) {
+      Serial.print("[LoRa Mesh] Node " NODE_NUMBER " already in ACK chain (");
+      Serial.print(nodeChain);
+      Serial.println("). Dropping packet to stop circulation.");
+      return;
+    }
+
+    String newChain = (nodeChain.length() > 0) ? (nodeChain + " " + NODE_NUMBER) : String(NODE_NUMBER);
+    String forwardedAck = newChain + ": [ACK] : " + ackId;
+
+    Serial.print("[LoRa Mesh] Forwarding ACK (Added " NODE_NUMBER " to chain): ");
+    Serial.println(forwardedAck);
+
+    delay(random(150, 350));
+    sendLoRaMessage(forwardedAck);
     return;
   }
-
-  // 4. Construct forwarded message by appending current node to the chain
-  String newChain = (nodeChain.length() > 0) ? (nodeChain + " " + NODE_NUMBER) : String(NODE_NUMBER);
-  String forwardedMessage = newChain + ": " + incomingMessage.substring(sosIndex);
-
-  Serial.print("[LoRa Mesh] Forwarding packet (Added " NODE_NUMBER " to chain): ");
-  Serial.println(forwardedMessage);
-
-  // 5. Random backoff delay (150ms - 350ms) to avoid collision when multiple mesh nodes forward
-  delay(random(150, 350));
-
-  sendLoRaMessage(forwardedMessage);
 }
 
 
@@ -220,6 +299,15 @@ void checkInputs() {
   if (bleMessage.length() > 0) {
     Serial.print("\n[BLE RX] Received from App: ");
     Serial.println(bleMessage);
+
+    // Extract message ID if present (<message id> : <timestamp> | ...) and track it
+    int colonIdx = bleMessage.indexOf(':');
+    if (colonIdx > 0) {
+      String msgId = bleMessage.substring(0, colonIdx);
+      msgId.trim();
+      recordSentMessageId(msgId);
+    }
+
     sendLoRaMessage(String(NODE_NUMBER) + ": [SOS] : " + bleMessage);
   }
 }

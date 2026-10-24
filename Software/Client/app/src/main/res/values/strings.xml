@@ -59,4 +59,10 @@
     <string name="edit_profile">Edit Profile</string>
     <string name="invalid_nic_error">Please enter a valid 12-digit NIC number</string>
     <string name="invalid_name_error">Please enter your full name</string>
+    <string name="sent_messages_toggle_desc">Sent SOS Messages</string>
+    <string name="sent_messages_title">📋 OUTBOUND SOS LOG</string>
+    <string name="close_sent_messages_desc">Close Outbound SOS Log</string>
+    <string name="no_sent_messages">No outbound SOS messages transmitted yet.</string>
+    <string name="status_pending">⏳ PENDING</string>
+    <string name="status_reached">✓ REACHED</string>
 </resources>

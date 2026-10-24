@@ -49,6 +49,9 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
+import org.json.JSONArray
+import org.json.JSONObject
+import android.view.ViewGroup
 import kotlin.math.min
 
 class MainActivity : AppCompatActivity() {
@@ -63,7 +66,19 @@ class MainActivity : AppCompatActivity() {
         private const val PREFS_NAME = "lifeline_user_prefs"
         private const val KEY_USER_NAME = "user_name"
         private const val KEY_USER_NIC = "user_nic"
+        private const val KEY_SENT_MESSAGES_JSON = "sent_messages_json"
+        private const val KEY_LAST_MSG_NUMBER = "last_msg_number"
     }
+
+    data class SentMessageRecord(
+        val messageNumber: String,
+        val timestamp: String,
+        val emergencyType: String,
+        val fullAlertText: String,
+        val messageId: String,
+        val unpaddedNumber: String,
+        var isReached: Boolean = false,
+    )
 
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var bleScanner: BluetoothLeScanner? = null
@@ -92,6 +107,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnCloseTerminal: View
     private lateinit var terminalLogTextView: TextView
     private lateinit var terminalScrollView: ScrollView
+
+    private lateinit var btnToggleSentMessages: View
+    private lateinit var sentMessagesOverlayCard: View
+    private lateinit var btnCloseSentMessages: View
+    private lateinit var sentMessagesContainer: ViewGroup
+    private lateinit var sentMessagesEmptyView: View
+    private val sentMessagesList = mutableListOf<SentMessageRecord>()
 
     @Volatile
     private var isConnected = false
@@ -248,6 +270,49 @@ class MainActivity : AppCompatActivity() {
         val message = String(value, Charsets.UTF_8).trim()
         if (message.isNotEmpty()) {
             appendTerminalLog("RX", message)
+            checkAndHandleAckMessage(message)
+        }
+    }
+
+    private fun checkAndHandleAckMessage(incomingMessage: String) {
+        val ackMarker = "[ACK]"
+        val ackIndex = incomingMessage.indexOf(ackMarker)
+        if (ackIndex < 0) return
+
+        val afterAck = incomingMessage.substring(ackIndex + ackMarker.length).trim()
+        val colonIdx = afterAck.indexOf(':')
+        val rawAckHash = if (colonIdx >= 0) afterAck.substring(colonIdx + 1).trim() else afterAck
+
+        val nic = getUserNic()
+        var updated = false
+        var matchedNumber = ""
+
+        synchronized(sentMessagesList) {
+            for (record in sentMessagesList) {
+                if (!record.isReached) {
+                    if (Base85.matchesAck(nic, record.messageNumber, record.unpaddedNumber, rawAckHash) ||
+                        record.messageId == rawAckHash ||
+                        rawAckHash.contains(record.messageId)) {
+                        record.isReached = true
+                        updated = true
+                        matchedNumber = record.messageNumber
+                        break
+                    }
+                }
+            }
+        }
+
+        if (updated) {
+            saveSentMessages()
+            runOnUiThread {
+                renderSentMessagesList()
+                Toast.makeText(
+                    this@MainActivity,
+                    "✓ Message #$matchedNumber Reached Destination!",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            appendTerminalLog("ACK", "Delivery confirmed for Message #$matchedNumber (Status: REACHED)")
         }
     }
 
@@ -331,10 +396,20 @@ class MainActivity : AppCompatActivity() {
         terminalLogTextView = findViewById(R.id.terminalLogTextView)
         terminalScrollView = findViewById(R.id.terminalScrollView)
 
+        btnToggleSentMessages = findViewById(R.id.btnToggleSentMessages)
+        sentMessagesOverlayCard = findViewById(R.id.sentMessagesOverlayCard)
+        btnCloseSentMessages = findViewById(R.id.btnCloseSentMessages)
+        sentMessagesContainer = findViewById(R.id.sentMessagesContainer)
+        sentMessagesEmptyView = findViewById(R.id.sentMessagesEmptyView)
+
+        loadSentMessages()
+        renderSentMessagesList()
+
         btnToggleTerminal.setOnClickListener {
             if (terminalOverlayCard.isVisible) {
                 terminalOverlayCard.visibility = View.GONE
             } else {
+                sentMessagesOverlayCard.visibility = View.GONE
                 terminalOverlayCard.visibility = View.VISIBLE
                 terminalScrollView.post {
                     terminalScrollView.fullScroll(View.FOCUS_DOWN)
@@ -344,6 +419,20 @@ class MainActivity : AppCompatActivity() {
 
         btnCloseTerminal.setOnClickListener {
             terminalOverlayCard.visibility = View.GONE
+        }
+
+        btnToggleSentMessages.setOnClickListener {
+            if (sentMessagesOverlayCard.isVisible) {
+                sentMessagesOverlayCard.visibility = View.GONE
+            } else {
+                terminalOverlayCard.visibility = View.GONE
+                renderSentMessagesList()
+                sentMessagesOverlayCard.visibility = View.VISIBLE
+            }
+        }
+
+        btnCloseSentMessages.setOnClickListener {
+            sentMessagesOverlayCard.visibility = View.GONE
         }
 
         val btnAccount = findViewById<View>(R.id.btnAccount)
@@ -541,14 +630,158 @@ class MainActivity : AppCompatActivity() {
                         "$categoryName - $baseMessage"
                     }
                 }
-                sendSosMessage(finalMessage)
+                val chosenCategory = if (isCustomType) {
+                    customTypeEditText.text?.toString()?.trim()?.ifEmpty { "OTHER" } ?: "OTHER"
+                } else {
+                    emergencyTitle.substringBefore(" ").trim()
+                }
+                sendSosMessage(finalMessage, chosenCategory)
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
 
-    private fun sendSosMessage(sosMessageText: String) {
-        sendBluetoothMessage(sosMessageText)
+    private fun sendSosMessage(sosMessageText: String, emergencyCategory: String = "EMERGENCY") {
+        val nic = getUserNic()
+        if (nic.isEmpty() || (nic.length != 12)) {
+            showUserProfileSetupDialog(isMandatory = true)
+            return
+        }
+
+        val gatt = bluetoothGatt
+        val writeChar = writeCharacteristic
+        if (!isConnected || (gatt == null) || (writeChar == null)) {
+            val dateTimePreview = SimpleDateFormat("dd:MM:yy HH:mm:ss", Locale.US).format(Date())
+            val gpsPreview = getGpsString()
+            val fullPreview = "$dateTimePreview | $sosMessageText | $gpsPreview"
+            appendTerminalLog("TX_ERR", "Attempted transmit while disconnected")
+            MaterialAlertDialogBuilder(this, R.style.Theme_LifeLine_Dialog)
+                .setTitle("🚨 SOS Broadcast Prepared")
+                .setMessage("$fullPreview\n\n⚠️ Mesh Bluetooth BLE is currently disconnected. Tap 'Connect' to pair with nearest node and transmit.")
+                .setPositiveButton("Connect Device") { _, _ ->
+                    checkPermissionsAndConnect()
+                }
+                .setNegativeButton("OK", null)
+                .show()
+            return
+        }
+
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val nextNum = prefs.getInt(KEY_LAST_MSG_NUMBER, 0) + 1
+        prefs.edit().putInt(KEY_LAST_MSG_NUMBER, nextNum).apply()
+
+        val msgNumberStr = String.format(Locale.US, "%03d", nextNum)
+        val msgId = Base85.generateMessageId(nic, msgNumberStr)
+        val dateTimeStr = SimpleDateFormat("dd:MM:yy HH:mm:ss", Locale.US).format(Date())
+        val gpsInfo = getGpsString()
+
+        // New payload format with message id: <message id> : <timestamp> | <alert> | GPS: <lat, lon>
+        val fullMessage = "$msgId : $dateTimeStr | $sosMessageText | $gpsInfo"
+
+        val record = SentMessageRecord(
+            messageNumber = msgNumberStr,
+            timestamp = dateTimeStr,
+            emergencyType = emergencyCategory,
+            fullAlertText = sosMessageText,
+            messageId = msgId,
+            unpaddedNumber = nextNum.toString(),
+            isReached = false,
+        )
+        synchronized(sentMessagesList) {
+            sentMessagesList.add(record)
+        }
+        saveSentMessages()
+        renderSentMessagesList()
+
+        sendBluetoothRawMessage(fullMessage)
+    }
+
+    private fun loadSentMessages() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val jsonStr = prefs.getString(KEY_SENT_MESSAGES_JSON, null)
+        synchronized(sentMessagesList) {
+            sentMessagesList.clear()
+            if (!jsonStr.isNullOrEmpty()) {
+                try {
+                    val arr = JSONArray(jsonStr)
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        sentMessagesList.add(
+                            SentMessageRecord(
+                                messageNumber = obj.optString("messageNumber", "001"),
+                                timestamp = obj.optString("timestamp", ""),
+                                emergencyType = obj.optString("emergencyType", "EMERGENCY"),
+                                fullAlertText = obj.optString("fullAlertText", ""),
+                                messageId = obj.optString("messageId", ""),
+                                unpaddedNumber = obj.optString("unpaddedNumber", "1"),
+                                isReached = obj.optBoolean("isReached", false),
+                            )
+                        )
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    private fun saveSentMessages() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val arr = JSONArray()
+        synchronized(sentMessagesList) {
+            for (record in sentMessagesList) {
+                val obj = JSONObject()
+                obj.put("messageNumber", record.messageNumber)
+                obj.put("timestamp", record.timestamp)
+                obj.put("emergencyType", record.emergencyType)
+                obj.put("fullAlertText", record.fullAlertText)
+                obj.put("messageId", record.messageId)
+                obj.put("unpaddedNumber", record.unpaddedNumber)
+                obj.put("isReached", record.isReached)
+                arr.put(obj)
+            }
+        }
+        prefs.edit().putString(KEY_SENT_MESSAGES_JSON, arr.toString()).apply()
+    }
+
+    private fun renderSentMessagesList() {
+        runOnUiThread {
+            if (!::sentMessagesContainer.isInitialized) return@runOnUiThread
+            sentMessagesContainer.removeAllViews()
+
+            val snapshot = synchronized(sentMessagesList) { sentMessagesList.toList() }
+            if (snapshot.isEmpty()) {
+                sentMessagesEmptyView.visibility = View.VISIBLE
+                return@runOnUiThread
+            }
+            sentMessagesEmptyView.visibility = View.GONE
+
+            val inflater = LayoutInflater.from(this)
+            for (item in snapshot.reversed()) {
+                val itemView = inflater.inflate(R.layout.item_sent_message, sentMessagesContainer, false)
+                val numView = itemView.findViewById<TextView>(R.id.itemMessageNumber)
+                val statusView = itemView.findViewById<TextView>(R.id.itemDeliveryStatus)
+                val typeView = itemView.findViewById<TextView>(R.id.itemEmergencyType)
+                val timeView = itemView.findViewById<TextView>(R.id.itemTimestamp)
+                val idView = itemView.findViewById<TextView>(R.id.itemMessageId)
+
+                numView.text = "MSG #${item.messageNumber}"
+                typeView.text = item.emergencyType
+                timeView.text = item.timestamp
+                val idShort = if (item.messageId.length > 20) item.messageId.substring(0, 20) + "..." else item.messageId
+                idView.text = "ID: $idShort"
+
+                if (item.isReached) {
+                    statusView.text = getString(R.string.status_reached)
+                    statusView.setBackgroundResource(R.drawable.bg_pill_green)
+                    statusView.setTextColor(ContextCompat.getColor(this, R.color.green_connected))
+                } else {
+                    statusView.text = getString(R.string.status_pending)
+                    statusView.setBackgroundResource(R.drawable.bg_pill_amber)
+                    statusView.setTextColor(ContextCompat.getColor(this, R.color.amber_primary))
+                }
+
+                sentMessagesContainer.addView(itemView)
+            }
+        }
     }
 
     private fun checkAndRequestInitialPermissions() {
@@ -702,11 +935,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun sendBluetoothMessage(sosMessageText: String) {
-        val dateTimeStr = SimpleDateFormat("dd:MM:yy HH:mm:ss", Locale.US).format(Date())
-        val gpsInfo = getGpsString()
-        val fullMessage = "$dateTimeStr | $sosMessageText | $gpsInfo"
-
+    private fun sendBluetoothRawMessage(fullMessage: String) {
         val gatt = bluetoothGatt
         val writeChar = writeCharacteristic
 
