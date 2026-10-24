@@ -102,6 +102,10 @@ function showDetails(node) {
     document.getElementById("detail-snr").textContent =
         node.snr === null ? "—" : `${Number(node.snr).toFixed(2)} dB`;
     document.getElementById("detail-time").textContent = formatTime(node.received_at);
+    const chainEl = document.getElementById("detail-chain");
+    if (chainEl) chainEl.textContent = node.node_chain || node.node_id || "—";
+    const msgIdEl = document.getElementById("detail-msgid");
+    if (msgIdEl) msgIdEl.textContent = node.message_id || "—";
     document.getElementById("detail-raw").textContent = node.raw_message || "";
     document.getElementById("detail-badge").textContent = node.marked ? "MARKED" : "ACTIVE SOS";
 

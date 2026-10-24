@@ -12,9 +12,17 @@ Pin configuration:
     Ra-02 DIO0 -> Pi pin 18 (GPIO24)
 """
 
+import threading
 import time
-import spidev
-import RPi.GPIO as GPIO
+
+try:
+    import spidev
+    import RPi.GPIO as GPIO
+    HAS_HARDWARE = True
+except (ImportError, RuntimeError):
+    HAS_HARDWARE = False
+    spidev = None
+    GPIO = None
 
 
 RESET_PIN = 25
@@ -67,6 +75,13 @@ IRQ_TX_DONE = 0x08
 
 class LoRa:
     def __init__(self):
+        self.lock = threading.Lock()
+        if not HAS_HARDWARE:
+            print("[LoRa] Running in mock/simulation mode (spidev/RPi.GPIO not found)")
+            self.is_mock = True
+            return
+
+        self.is_mock = False
         self.spi = spidev.SpiDev()
         self.spi.open(SPI_BUS, SPI_DEVICE)
         self.spi.mode = 0
@@ -89,34 +104,52 @@ class LoRa:
         self.init_lora()
 
     def write_register(self, address, value):
+        if self.is_mock:
+            return
         self.spi.xfer2([address | 0x80, value & 0xFF])
 
     def read_register(self, address):
+        if self.is_mock:
+            if address == REG_VERSION:
+                return 0x12
+            return 0
         return self.spi.xfer2([address & 0x7F, 0x00])[1]
 
     def write_fifo(self, data):
+        if self.is_mock:
+            return
         self.spi.xfer2([REG_FIFO | 0x80] + list(data))
 
     def read_fifo(self, length):
+        if self.is_mock:
+            return [0] * length
         return self.spi.xfer2([REG_FIFO & 0x7F] + [0] * length)[1:]
 
     def reset(self):
+        if self.is_mock:
+            return
         GPIO.output(RESET_PIN, GPIO.LOW)
         time.sleep(0.01)
         GPIO.output(RESET_PIN, GPIO.HIGH)
         time.sleep(0.01)
 
     def set_mode(self, mode):
+        if self.is_mock:
+            return
         self.write_register(REG_OP_MODE, LONG_RANGE_MODE | mode)
         time.sleep(0.001)
 
     def set_frequency(self, frequency):
+        if self.is_mock:
+            return
         frf = int(frequency * (1 << 19) / 32_000_000)
         self.write_register(REG_FRF_MSB, (frf >> 16) & 0xFF)
         self.write_register(REG_FRF_MID, (frf >> 8) & 0xFF)
         self.write_register(REG_FRF_LSB, frf & 0xFF)
 
     def init_lora(self):
+        if self.is_mock:
+            return
         self.set_mode(MODE_SLEEP)
         self.set_frequency(FREQUENCY)
 
@@ -158,13 +191,16 @@ class LoRa:
         )
 
     def start_receive(self):
-        self.set_mode(MODE_STDBY)
-        self.write_register(REG_IRQ_FLAGS, 0xFF)
+        if self.is_mock:
+            return
+        with self.lock:
+            self.set_mode(MODE_STDBY)
+            self.write_register(REG_IRQ_FLAGS, 0xFF)
 
-        rx_base = self.read_register(REG_FIFO_RX_BASE_ADDR)
-        self.write_register(REG_FIFO_ADDR_PTR, rx_base)
+            rx_base = self.read_register(REG_FIFO_RX_BASE_ADDR)
+            self.write_register(REG_FIFO_ADDR_PTR, rx_base)
 
-        self.set_mode(MODE_RX_CONTINUOUS)
+            self.set_mode(MODE_RX_CONTINUOUS)
 
     def receive(self):
         """Read exactly one complete SX1278 RX packet.
@@ -172,63 +208,127 @@ class LoRa:
         The FIFO is explicitly re-armed after every packet so that a later
         packet cannot inherit a stale FIFO pointer/state.
         """
-        irq = self.read_register(REG_IRQ_FLAGS)
-
-        if not (irq & IRQ_RX_DONE):
+        if self.is_mock:
             return None
 
-        # CRC error: discard the packet and immediately re-arm RX.
-        if irq & IRQ_PAYLOAD_CRC_ERROR:
-            print("[LoRa] CRC error - packet discarded")
+        with self.lock:
+            irq = self.read_register(REG_IRQ_FLAGS)
+
+            if not (irq & IRQ_RX_DONE):
+                return None
+
+            # CRC error: discard the packet and immediately re-arm RX.
+            if irq & IRQ_PAYLOAD_CRC_ERROR:
+                print("[LoRa] CRC error - packet discarded")
+                self.write_register(REG_IRQ_FLAGS, 0xFF)
+                rx_base = self.read_register(REG_FIFO_RX_BASE_ADDR)
+                self.write_register(REG_FIFO_ADDR_PTR, rx_base)
+                self.set_mode(MODE_RX_CONTINUOUS)
+                return None
+
+            length = self.read_register(REG_RX_NB_BYTES)
+
+            # Never attempt to read an invalid FIFO length.
+            if length <= 0 or length > 255:
+                print(f"[LoRa] Invalid RX length: {length} - packet discarded")
+                self.write_register(REG_IRQ_FLAGS, 0xFF)
+                rx_base = self.read_register(REG_FIFO_RX_BASE_ADDR)
+                self.write_register(REG_FIFO_ADDR_PTR, rx_base)
+                self.set_mode(MODE_RX_CONTINUOUS)
+                return None
+
+            # SX1278 gives the FIFO address where THIS packet starts.
+            current_addr = self.read_register(REG_FIFO_RX_CURRENT_ADDR)
+            self.write_register(REG_FIFO_ADDR_PTR, current_addr)
+
+            # Read exactly the number of bytes reported by RegRxNbBytes.
+            data = self.read_fifo(length)
+            packet_bytes = bytes(data)
+
+            raw_rssi = self.read_register(REG_PKT_RSSI_VALUE)
+            rssi = raw_rssi - 157
+
+            raw_snr = self.read_register(REG_PKT_SNR_VALUE)
+            if raw_snr & 0x80:
+                raw_snr -= 256
+            snr = raw_snr / 4.0
+
+            # Clear all IRQ flags before re-arming RX.
             self.write_register(REG_IRQ_FLAGS, 0xFF)
+
+            # Reset FIFO pointer to RX base. This is deliberate: it prevents
+            # stale FIFO state from being carried into the next reception.
+            rx_base = self.read_register(REG_FIFO_RX_BASE_ADDR)
+            self.write_register(REG_FIFO_ADDR_PTR, rx_base)
+
+            # Explicitly return to continuous RX after every packet.
+            self.set_mode(MODE_RX_CONTINUOUS)
+
+            message = packet_bytes.decode("utf-8", errors="replace")
+
+            return message, rssi, snr
+
+    def send(self, message: str) -> bool:
+        """Transmit a string packet via LoRa and return to continuous RX mode."""
+        if not message:
+            return False
+
+        if self.is_mock:
+            print(f"[LoRa MOCK TX] Transmitted packet: {message}")
+            return True
+
+        data = message.encode("utf-8")
+        if len(data) > 255:
+            print(f"[LoRa] Payload too large ({len(data)} bytes, max 255)")
+            return False
+
+        with self.lock:
+            # Standby mode before configuring transmission
+            self.set_mode(MODE_STDBY)
+
+            # Clear all IRQ flags
+            self.write_register(REG_IRQ_FLAGS, 0xFF)
+
+            # Set FIFO pointer to TX base address
+            tx_base = self.read_register(REG_FIFO_TX_BASE_ADDR)
+            self.write_register(REG_FIFO_ADDR_PTR, tx_base)
+
+            # Set payload length
+            self.write_register(REG_PAYLOAD_LENGTH, len(data))
+
+            # Write data to FIFO
+            self.write_fifo(data)
+
+            # Put radio in TX mode
+            self.set_mode(MODE_TX)
+
+            # Wait for TX_DONE
+            start_time = time.time()
+            tx_done = False
+            while time.time() - start_time < 3.0:
+                irq = self.read_register(REG_IRQ_FLAGS)
+                if irq & IRQ_TX_DONE:
+                    tx_done = True
+                    break
+                time.sleep(0.01)
+
+            # Clear IRQ flags
+            self.write_register(REG_IRQ_FLAGS, 0xFF)
+
+            # Re-arm continuous receive
             rx_base = self.read_register(REG_FIFO_RX_BASE_ADDR)
             self.write_register(REG_FIFO_ADDR_PTR, rx_base)
             self.set_mode(MODE_RX_CONTINUOUS)
-            return None
 
-        length = self.read_register(REG_RX_NB_BYTES)
+            if not tx_done:
+                print("[LoRa] TX timeout waiting for IRQ_TX_DONE")
+                return False
 
-        # Never attempt to read an invalid FIFO length.
-        if length <= 0 or length > 255:
-            print(f"[LoRa] Invalid RX length: {length} - packet discarded")
-            self.write_register(REG_IRQ_FLAGS, 0xFF)
-            rx_base = self.read_register(REG_FIFO_RX_BASE_ADDR)
-            self.write_register(REG_FIFO_ADDR_PTR, rx_base)
-            self.set_mode(MODE_RX_CONTINUOUS)
-            return None
-
-        # SX1278 gives the FIFO address where THIS packet starts.
-        current_addr = self.read_register(REG_FIFO_RX_CURRENT_ADDR)
-        self.write_register(REG_FIFO_ADDR_PTR, current_addr)
-
-        # Read exactly the number of bytes reported by RegRxNbBytes.
-        data = self.read_fifo(length)
-        packet_bytes = bytes(data)
-
-        raw_rssi = self.read_register(REG_PKT_RSSI_VALUE)
-        rssi = raw_rssi - 157
-
-        raw_snr = self.read_register(REG_PKT_SNR_VALUE)
-        if raw_snr & 0x80:
-            raw_snr -= 256
-        snr = raw_snr / 4.0
-
-        # Clear all IRQ flags before re-arming RX.
-        self.write_register(REG_IRQ_FLAGS, 0xFF)
-
-        # Reset FIFO pointer to RX base. This is deliberate: it prevents
-        # stale FIFO state from being carried into the next reception.
-        rx_base = self.read_register(REG_FIFO_RX_BASE_ADDR)
-        self.write_register(REG_FIFO_ADDR_PTR, rx_base)
-
-        # Explicitly return to continuous RX after every packet.
-        self.set_mode(MODE_RX_CONTINUOUS)
-
-        message = packet_bytes.decode("utf-8", errors="replace")
-
-        return message, rssi, snr
+            return True
 
     def close(self):
+        if self.is_mock:
+            return
         try:
             self.set_mode(MODE_SLEEP)
         finally:
