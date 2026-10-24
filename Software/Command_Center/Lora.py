@@ -90,10 +90,28 @@ class LoRa:
             return
 
         self.is_mock = False
-        self.spi = spidev.SpiDev()
-        self.spi.open(SPI_BUS, SPI_DEVICE)
-        self.spi.mode = 0
-        self.spi.max_speed_hz = 5_000_000
+        try:
+            self.spi = spidev.SpiDev()
+            self.spi.open(SPI_BUS, SPI_DEVICE)
+            self.spi.mode = 0
+            self.spi.max_speed_hz = 5_000_000
+        except (FileNotFoundError, OSError) as e:
+            if getattr(e, 'errno', None) == 2 or isinstance(e, FileNotFoundError):
+                raise RuntimeError(
+                    "SPI interface is DISABLED on this Raspberry Pi (/dev/spidev0.0 not found).\n"
+                    "    To enable SPI:\n"
+                    "      1. Run: sudo raspi-config\n"
+                    "      2. Go to: Interface Options -> SPI -> Select 'Yes' to enable\n"
+                    "      3. Reboot: sudo reboot\n"
+                    "    (Or ensure 'dtparam=spi=on' is in /boot/firmware/config.txt or /boot/config.txt and reboot)"
+                ) from e
+            raise
+        except PermissionError as e:
+            raise RuntimeError(
+                "Permission denied accessing /dev/spidev0.0.\n"
+                "    Run: sudo usermod -a -G spi,gpio $USER\n"
+                "    Then log out and log back in."
+            ) from e
 
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(RESET_PIN, GPIO.OUT)

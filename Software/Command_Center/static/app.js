@@ -86,6 +86,18 @@ function showHistory(node) {
             card.appendChild(signal);
         }
 
+        if (item.node_chain || item.message_id) {
+            const chainMeta = document.createElement("div");
+            chainMeta.className = "history-chain";
+            chainMeta.style.fontSize = "11px";
+            chainMeta.style.color = "#94a3b8";
+            chainMeta.style.marginTop = "2px";
+            const chainText = item.node_chain ? `Chain: ${item.node_chain}` : "";
+            const msgIdText = item.message_id ? `ID: ${item.message_id.slice(0, 10)}...` : "";
+            chainMeta.textContent = [chainText, msgIdText].filter(Boolean).join(" • ");
+            card.appendChild(chainMeta);
+        }
+
         list.appendChild(card);
     });
 }
@@ -270,8 +282,6 @@ async function pollNodes() {
 document.getElementById("close-panel").addEventListener("click", hideDetails);
 
 panelToggle.addEventListener("click", () => {
-    // Only refresh an already-open details panel. Do not reopen a panel
-    // that the user explicitly closed.
     if (selectedNodeId && nodesCache.has(selectedNodeId) && !detailsPanel.classList.contains("hidden")) {
         showDetails(nodesCache.get(selectedNodeId));
     }
@@ -308,82 +318,82 @@ let latestStatus = null;
 
 async function pollReceiverStatus() {
     try {
-        const response = await fetch('/api/status', { cache: 'no-store' });
-        if (!response.ok) throw new Error(HTTP );
+        const response = await fetch("/api/status", { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const status = await response.json();
         latestStatus = status;
 
-        const dot = document.getElementById('status-dot');
-        const text = document.getElementById('status-text');
-        const container = document.getElementById('system-status-container');
+        const dot = document.getElementById("status-dot");
+        const text = document.getElementById("status-text");
+        const container = document.getElementById("system-status-container");
         if (!dot || !text) return;
 
-        dot.className = 'status-dot';
+        dot.className = "status-dot";
         if (status.connected) {
-            dot.classList.add('online');
-            text.textContent = 'RECEIVER ONLINE';
-            const rx = status.stats?.rx_total || 0;
-            const tx = status.stats?.tx_total || 0;
-            const mode = status.mode || 'RX';
+            dot.classList.add("online");
+            text.textContent = "RECEIVER ONLINE";
+            const rx = (status.stats && status.stats.rx_total) || 0;
+            const tx = (status.stats && status.stats.tx_total) || 0;
+            const mode = status.mode || "RX";
             if (container) {
-                container.title = LoRa Online:  MHz () | RX:  | TX: \nClick for details;
+                container.title = `LoRa Online: ${status.frequency_mhz} MHz (${mode}) | RX: ${rx} | TX: ${tx}\nClick for details`;
             }
-        } else if (status.status === 'SIMULATION') {
-            dot.classList.add('simulation');
-            text.textContent = 'SIMULATION MODE';
+        } else if (status.status === "SIMULATION") {
+            dot.classList.add("simulation");
+            text.textContent = "SIMULATION MODE";
             if (container) {
-                container.title = ${status.details}\nClick for details;
+                container.title = `${status.details}\nClick for details`;
             }
         } else {
-            dot.classList.add('offline');
-            text.textContent = 'RECEIVER OFFLINE';
+            dot.classList.add("offline");
+            text.textContent = "RECEIVER OFFLINE";
             if (container) {
-                container.title = ${status.details || 'LoRa module not detected'}\nClick for wiring details;
+                container.title = `${status.details || "LoRa module not detected"}\nClick for wiring details`;
             }
         }
     } catch (error) {
-        const dot = document.getElementById('status-dot');
-        const text = document.getElementById('status-text');
+        const dot = document.getElementById("status-dot");
+        const text = document.getElementById("status-text");
         if (dot && text) {
-            dot.className = 'status-dot offline';
-            text.textContent = 'SERVER DISCONNECTED';
+            dot.className = "status-dot offline";
+            text.textContent = "SERVER DISCONNECTED";
         }
     }
 }
 
-const statusContainer = document.getElementById('system-status-container');
+const statusContainer = document.getElementById("system-status-container");
 if (statusContainer) {
-    statusContainer.addEventListener('click', () => {
+    statusContainer.addEventListener("click", () => {
         if (!latestStatus) {
-            alert('Checking LoRa transceiver status... Please wait.');
+            alert("Checking LoRa transceiver status... Please wait.");
             return;
         }
 
         const stats = latestStatus.stats || {};
-        let msg = [LifeLine LoRa Module Status]\n +
-            • Status:  ()\n +
-            • Details: \n +
-            • Frequency:  MHz\n +
-            • Mode: \n +
-            • Chip Version: \n\n +
-            [Statistics]\n +
-            • Total Packets Received: \n +
-            • Total ACKs Transmitted: \n +
-            • Duplicates Suppressed: \n +
-            • CRC Errors: \n +
-            • Last RX: \n +
-            • Last TX: ;
+        let msg = `[LifeLine LoRa Module Status]\n` +
+            `• Status: ${latestStatus.status} (${latestStatus.connected ? "Connected" : "Not Detected"})\n` +
+            `• Details: ${latestStatus.details || "N/A"}\n` +
+            `• Frequency: ${latestStatus.frequency_mhz || 433} MHz\n` +
+            `• Mode: ${latestStatus.mode || "N/A"}\n` +
+            `• Chip Version: ${latestStatus.chip_version || "N/A"}\n\n` +
+            `[Statistics]\n` +
+            `• Total Packets Received: ${stats.rx_total || 0}\n` +
+            `• Total ACKs Transmitted: ${stats.tx_total || 0}\n` +
+            `• Duplicates Suppressed: ${stats.duplicates_suppressed || 0}\n` +
+            `• CRC Errors: ${stats.crc_errors || 0}\n` +
+            `• Last RX: ${stats.last_rx_time || "None"}\n` +
+            `• Last TX: ${stats.last_tx_time || "None"}`;
 
-        if (!latestStatus.connected && latestStatus.status !== 'SIMULATION') {
-            msg += \n\n[Wiring Reference - Ra-02 to Pi]:\n +
-                VCC  -> Pi Pin 1 (3.3V)\n +
-                GND  -> Pi Pin 6 (GND)\n +
-                SCK  -> Pi Pin 23 (GPIO11)\n +
-                MISO -> Pi Pin 21 (GPIO9)\n +
-                MOSI -> Pi Pin 19 (GPIO10)\n +
-                NSS  -> Pi Pin 24 (GPIO8)\n +
-                RST  -> Pi Pin 22 (GPIO25)\n +
-                DIO0 -> Pi Pin 18 (GPIO24);
+        if (!latestStatus.connected && latestStatus.status !== "SIMULATION") {
+            msg += `\n\n[Wiring Reference - Ra-02 to Pi]:\n` +
+                `VCC  -> Pi Pin 1 (3.3V)\n` +
+                `GND  -> Pi Pin 6 (GND)\n` +
+                `SCK  -> Pi Pin 23 (GPIO11)\n` +
+                `MISO -> Pi Pin 21 (GPIO9)\n` +
+                `MOSI -> Pi Pin 19 (GPIO10)\n` +
+                `NSS  -> Pi Pin 24 (GPIO8)\n` +
+                `RST  -> Pi Pin 22 (GPIO25)\n` +
+                `DIO0 -> Pi Pin 18 (GPIO24)`;
         }
 
         alert(msg);
@@ -394,4 +404,3 @@ pollNodes();
 setInterval(pollNodes, 1000);
 pollReceiverStatus();
 setInterval(pollReceiverStatus, 2000);
-

@@ -378,23 +378,40 @@ def lora_listener():
                     continue
 
             except Exception as exc:
+                err_str = str(exc)
+                is_spi_disabled = "[Errno 2]" in err_str or "spidev0.0" in err_str or "SPI interface is DISABLED" in err_str
+
                 with status_lock:
                     lora_status["connected"] = False
                     lora_status["status"] = "OFFLINE"
-                    lora_status["details"] = f"Error: {exc}"
+                    if is_spi_disabled:
+                        lora_status["details"] = "SPI interface is DISABLED on Raspberry Pi (/dev/spidev0.0 not found). Run 'sudo raspi-config' -> Interface Options -> SPI -> Enable, then reboot."
+                    else:
+                        lora_status["details"] = f"Error: {exc}"
 
+                print("\n" + "!" * 65)
                 print(f"[LifeLine LoRa] [CRITICAL] Could not initialize SX1278: {exc}")
-                print("[LifeLine LoRa] Please verify the Ra-02 wiring to the Raspberry Pi GPIO headers:")
-                print("    Ra-02 VCC  -> Pi Pin 1  (3.3V)")
-                print("    Ra-02 GND  -> Pi Pin 6  (GND)")
-                print("    Ra-02 SCK  -> Pi Pin 23 (GPIO11 / SPI0 SCLK)")
-                print("    Ra-02 MISO -> Pi Pin 21 (GPIO9  / SPI0 MISO)")
-                print("    Ra-02 MOSI -> Pi Pin 19 (GPIO10 / SPI0 MOSI)")
-                print("    Ra-02 NSS  -> Pi Pin 24 (GPIO8  / SPI0 CE0)")
-                print("    Ra-02 RST  -> Pi Pin 22 (GPIO25)")
-                print("    Ra-02 DIO0 -> Pi Pin 18 (GPIO24)")
-                print("[LifeLine LoRa] Retrying in 3 seconds...\n")
-                time.sleep(3)
+                if is_spi_disabled:
+                    print("[LifeLine LoRa] ROOT CAUSE: Raspberry Pi SPI hardware interface is DISABLED!")
+                    print("[LifeLine LoRa] The Linux kernel device node '/dev/spidev0.0' does not exist.")
+                    print("[LifeLine LoRa] QUICK FIX:")
+                    print("    1. Open Raspberry Pi configuration:  sudo raspi-config")
+                    print("    2. Navigate to: Interface Options -> SPI -> Select 'Yes'")
+                    print("    3. Reboot the Raspberry Pi:          sudo reboot")
+                    print("    (Alternatively, add 'dtparam=spi=on' to /boot/firmware/config.txt and reboot)")
+                else:
+                    print("[LifeLine LoRa] Please verify the Ra-02 wiring to the Raspberry Pi GPIO headers:")
+                    print("    Ra-02 VCC  -> Pi Pin 1  (3.3V)")
+                    print("    Ra-02 GND  -> Pi Pin 6  (GND)")
+                    print("    Ra-02 SCK  -> Pi Pin 23 (GPIO11 / SPI0 SCLK)")
+                    print("    Ra-02 MISO -> Pi Pin 21 (GPIO9  / SPI0 MISO)")
+                    print("    Ra-02 MOSI -> Pi Pin 19 (GPIO10 / SPI0 MOSI)")
+                    print("    Ra-02 NSS  -> Pi Pin 24 (GPIO8  / SPI0 CE0)")
+                    print("    Ra-02 RST  -> Pi Pin 22 (GPIO25)")
+                    print("    Ra-02 DIO0 -> Pi Pin 18 (GPIO24)")
+                print("!" * 65)
+                print("[LifeLine LoRa] Retrying in 4 seconds...\n")
+                time.sleep(4)
                 continue
 
         # Normal polling loop
