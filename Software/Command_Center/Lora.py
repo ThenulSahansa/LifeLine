@@ -31,9 +31,10 @@ DIO0_PIN = 24
 SPI_BUS = 0
 SPI_DEVICE = 0
 
-# Change this if your Ra-02 and all LifeLine nodes use another frequency.
+# 433 MHz carrier frequency for LifeLine mesh network
 FREQUENCY = 433_000_000
 
+# SX1278 Register Map
 REG_FIFO = 0x00
 REG_OP_MODE = 0x01
 REG_FRF_MSB = 0x06
@@ -62,20 +63,27 @@ REG_SYNC_WORD = 0x39
 REG_DIO_MAPPING_1 = 0x40
 REG_VERSION = 0x42
 
+# Operating Modes
 MODE_SLEEP = 0x00
 MODE_STDBY = 0x01
 MODE_TX = 0x03
 MODE_RX_CONTINUOUS = 0x05
 LONG_RANGE_MODE = 0x80
 
+# Bit 3 of RegOpMode: LowFrequencyModeOn (Must be 1 for bands < 525 MHz like 433 MHz)
+MODE_LOW_FREQUENCY = 0x08
+
+# IRQ Flags
 IRQ_RX_DONE = 0x40
 IRQ_PAYLOAD_CRC_ERROR = 0x20
 IRQ_TX_DONE = 0x08
 
 
 class LoRa:
-    def __init__(self):
+    def __init__(self, frequency: int = FREQUENCY):
         self.lock = threading.Lock()
+        self.frequency = frequency
+
         if not HAS_HARDWARE:
             print("[LoRa] Running in mock/simulation mode (spidev/RPi.GPIO not found)")
             self.is_mock = True
@@ -91,14 +99,15 @@ class LoRa:
         GPIO.setup(RESET_PIN, GPIO.OUT)
         GPIO.setup(DIO0_PIN, GPIO.IN)
 
+        print("[LoRa] Performing hardware reset on SX1278 (RST=GPIO25)...")
         self.reset()
 
         version = self.read_register(REG_VERSION)
-        print(f"[LoRa] SX1278 version: 0x{version:02X}")
+        print(f"[LoRa] Read SX1278 Version Register (0x42): 0x{version:02X}")
         if version != 0x12:
             raise RuntimeError(
-                f"SX1278 not detected (version 0x{version:02X}). "
-                "Check SPI wiring and power."
+                f"SX1278 not detected (got 0x{version:02X}, expected 0x12). "
+                "Verify SPI wiring: MOSI=Pin19, MISO=Pin21, SCK=Pin23, NSS=Pin24, 3.3V=Pin1, GND=Pin6."
             )
 
         self.init_lora()
@@ -129,19 +138,22 @@ class LoRa:
         if self.is_mock:
             return
         GPIO.output(RESET_PIN, GPIO.LOW)
-        time.sleep(0.01)
+        time.sleep(0.02)
         GPIO.output(RESET_PIN, GPIO.HIGH)
-        time.sleep(0.01)
+        time.sleep(0.02)
 
     def set_mode(self, mode):
         if self.is_mock:
             return
-        self.write_register(REG_OP_MODE, LONG_RANGE_MODE | mode)
-        time.sleep(0.001)
+        # Bit 3 (MODE_LOW_FREQUENCY) must remain set for 433 MHz operations
+        low_freq = MODE_LOW_FREQUENCY if self.frequency < 525_000_000 else 0x00
+        self.write_register(REG_OP_MODE, LONG_RANGE_MODE | low_freq | mode)
+        time.sleep(0.002)
 
     def set_frequency(self, frequency):
         if self.is_mock:
             return
+        self.frequency = frequency
         frf = int(frequency * (1 << 19) / 32_000_000)
         self.write_register(REG_FRF_MSB, (frf >> 16) & 0xFF)
         self.write_register(REG_FRF_MID, (frf >> 8) & 0xFF)
@@ -150,10 +162,12 @@ class LoRa:
     def init_lora(self):
         if self.is_mock:
             return
-        self.set_mode(MODE_SLEEP)
-        self.set_frequency(FREQUENCY)
 
-        # PA_BOOST, approximately +17 dBm.
+        # LoRa mode can only be enabled in sleep mode
+        self.set_mode(MODE_SLEEP)
+        self.set_frequency(self.frequency)
+
+        # PA_BOOST, approximately +17 dBm
         self.write_register(REG_PA_CONFIG, 0x8F)
         self.write_register(REG_PA_RAMP, 0x09)
         self.write_register(REG_OCP, 0x2B)
@@ -162,16 +176,16 @@ class LoRa:
         self.write_register(REG_FIFO_TX_BASE_ADDR, 0x00)
         self.write_register(REG_FIFO_RX_BASE_ADDR, 0x00)
 
-        # BW 125 kHz, CR 4/5, explicit header.
+        # BW 125 kHz, CR 4/5, explicit header
         self.write_register(REG_MODEM_CONFIG_1, 0x72)
 
-        # SF7, CRC enabled.
+        # SF7, CRC enabled
         self.write_register(REG_MODEM_CONFIG_2, 0x74)
 
-        # AGC enabled.
+        # AGC enabled
         self.write_register(REG_MODEM_CONFIG_3, 0x04)
 
-        # Preamble = 8.
+        # Preamble = 8
         self.write_register(REG_PREAMBLE_MSB, 0x00)
         self.write_register(REG_PREAMBLE_LSB, 0x08)
 
@@ -185,10 +199,16 @@ class LoRa:
 
         self.set_mode(MODE_STDBY)
 
-        print(
-            f"[LoRa] Ready: {FREQUENCY / 1_000_000:.3f} MHz, "
-            "BW 125 kHz, SF7, CR 4/5"
-        )
+        print("=" * 65)
+        print("[LoRa] SX1278 Initialized Successfully!")
+        print(f"[LoRa] Frequency       : {self.frequency / 1_000_000:.3f} MHz (Low-Frequency Mode Active)")
+        print("[LoRa] Bandwidth       : 125 kHz")
+        print("[LoRa] Spreading Factor: SF7")
+        print("[LoRa] Coding Rate     : 4/5")
+        print("[LoRa] Sync Word       : 0x12 (LifeLine Network)")
+        print("[LoRa] CRC Check       : Enabled")
+        print("[LoRa] AGC Loop        : Enabled")
+        print("=" * 65)
 
     def start_receive(self):
         if self.is_mock:
@@ -201,6 +221,66 @@ class LoRa:
             self.write_register(REG_FIFO_ADDR_PTR, rx_base)
 
             self.set_mode(MODE_RX_CONTINUOUS)
+
+    def check_connectivity(self) -> dict:
+        """Verify SPI connectivity and chip status."""
+        if self.is_mock:
+            return {
+                "connected": False,
+                "status": "SIMULATION",
+                "details": "Running in mock mode (no spidev/hardware detected)",
+                "chip_version": None,
+                "frequency_mhz": self.frequency / 1_000_000,
+                "mode": "MOCK",
+            }
+        try:
+            with self.lock:
+                version = self.read_register(REG_VERSION)
+                if version == 0x12:
+                    op_mode = self.read_register(REG_OP_MODE)
+                    mode_name = self.get_mode_name(op_mode)
+                    return {
+                        "connected": True,
+                        "status": "ONLINE",
+                        "details": f"SX1278 Online (Version 0x12) | {self.frequency / 1_000_000:.2f} MHz | {mode_name}",
+                        "chip_version": "0x12",
+                        "frequency_mhz": self.frequency / 1_000_000,
+                        "mode": mode_name,
+                        "raw_op_mode": f"0x{op_mode:02X}",
+                    }
+                else:
+                    return {
+                        "connected": False,
+                        "status": "OFFLINE",
+                        "details": f"SX1278 not responding (Read 0x{version:02X}, expected 0x12). Check SPI wiring & 3.3V power.",
+                        "chip_version": f"0x{version:02X}",
+                        "frequency_mhz": self.frequency / 1_000_000,
+                        "mode": "DISCONNECTED",
+                    }
+        except Exception as e:
+            return {
+                "connected": False,
+                "status": "ERROR",
+                "details": f"SPI Communication Error: {e}",
+                "chip_version": None,
+                "frequency_mhz": self.frequency / 1_000_000,
+                "mode": "ERROR",
+            }
+
+    @staticmethod
+    def get_mode_name(op_mode: int) -> str:
+        mode_val = op_mode & 0x07
+        modes = {
+            0x00: "SLEEP",
+            0x01: "STANDBY",
+            0x02: "FSTX",
+            0x03: "TX",
+            0x04: "FSRX",
+            0x05: "RX_CONTINUOUS",
+            0x06: "RX_SINGLE",
+            0x07: "CAD",
+        }
+        return modes.get(mode_val, f"UNKNOWN(0x{mode_val:02X})")
 
     def receive(self):
         """Read exactly one complete SX1278 RX packet.
@@ -215,22 +295,28 @@ class LoRa:
             irq = self.read_register(REG_IRQ_FLAGS)
 
             if not (irq & IRQ_RX_DONE):
+                # Self-healing check: ensure chip is still in continuous RX mode
+                op_mode = self.read_register(REG_OP_MODE)
+                if (op_mode & 0x07) != MODE_RX_CONTINUOUS:
+                    rx_base = self.read_register(REG_FIFO_RX_BASE_ADDR)
+                    self.write_register(REG_FIFO_ADDR_PTR, rx_base)
+                    self.set_mode(MODE_RX_CONTINUOUS)
                 return None
 
             # CRC error: discard the packet and immediately re-arm RX.
             if irq & IRQ_PAYLOAD_CRC_ERROR:
-                print("[LoRa] CRC error - packet discarded")
+                print("[LoRa RX] CRC error - packet payload corrupted, discarding.")
                 self.write_register(REG_IRQ_FLAGS, 0xFF)
                 rx_base = self.read_register(REG_FIFO_RX_BASE_ADDR)
                 self.write_register(REG_FIFO_ADDR_PTR, rx_base)
                 self.set_mode(MODE_RX_CONTINUOUS)
-                return None
+                return ("CRC_ERROR", 0, 0)
 
             length = self.read_register(REG_RX_NB_BYTES)
 
             # Never attempt to read an invalid FIFO length.
             if length <= 0 or length > 255:
-                print(f"[LoRa] Invalid RX length: {length} - packet discarded")
+                print(f"[LoRa RX] Invalid RX length: {length} - packet discarded")
                 self.write_register(REG_IRQ_FLAGS, 0xFF)
                 rx_base = self.read_register(REG_FIFO_RX_BASE_ADDR)
                 self.write_register(REG_FIFO_ADDR_PTR, rx_base)
@@ -246,7 +332,9 @@ class LoRa:
             packet_bytes = bytes(data)
 
             raw_rssi = self.read_register(REG_PKT_RSSI_VALUE)
-            rssi = raw_rssi - 157
+            # Offset is -164 dBm for LF (433 MHz) port, -157 dBm for HF
+            rssi_offset = 164 if self.frequency < 525_000_000 else 157
+            rssi = raw_rssi - rssi_offset
 
             raw_snr = self.read_register(REG_PKT_SNR_VALUE)
             if raw_snr & 0x80:
@@ -266,6 +354,11 @@ class LoRa:
 
             message = packet_bytes.decode("utf-8", errors="replace")
 
+            print("\n" + "-" * 65)
+            print(f"[LoRa RX] Packet received: {length} bytes | RSSI: {rssi:.1f} dBm | SNR: {snr:.2f} dB")
+            print(f"[LoRa RX] Payload: {message!r}")
+            print("-" * 65)
+
             return message, rssi, snr
 
     def send(self, message: str) -> bool:
@@ -279,8 +372,13 @@ class LoRa:
 
         data = message.encode("utf-8")
         if len(data) > 255:
-            print(f"[LoRa] Payload too large ({len(data)} bytes, max 255)")
+            print(f"[LoRa TX] Payload too large ({len(data)} bytes, max 255)")
             return False
+
+        print("\n" + "-" * 65)
+        print(f"[LoRa TX] Starting transmission ({len(data)} bytes)...")
+        print(f"[LoRa TX] Payload: {message!r}")
+        tx_start = time.time()
 
         with self.lock:
             # Standby mode before configuring transmission
@@ -303,9 +401,8 @@ class LoRa:
             self.set_mode(MODE_TX)
 
             # Wait for TX_DONE
-            start_time = time.time()
             tx_done = False
-            while time.time() - start_time < 3.0:
+            while time.time() - tx_start < 3.0:
                 irq = self.read_register(REG_IRQ_FLAGS)
                 if irq & IRQ_TX_DONE:
                     tx_done = True
@@ -320,10 +417,14 @@ class LoRa:
             self.write_register(REG_FIFO_ADDR_PTR, rx_base)
             self.set_mode(MODE_RX_CONTINUOUS)
 
+            elapsed_ms = (time.time() - tx_start) * 1000
             if not tx_done:
-                print("[LoRa] TX timeout waiting for IRQ_TX_DONE")
+                print(f"[LoRa TX] ERROR: Transmission timed out after {elapsed_ms:.1f} ms!")
+                print("-" * 65)
                 return False
 
+            print(f"[LoRa TX] Transmission successful in {elapsed_ms:.1f} ms. Re-armed Continuous RX mode.")
+            print("-" * 65)
             return True
 
     def close(self):

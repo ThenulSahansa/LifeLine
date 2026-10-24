@@ -18,6 +18,25 @@ COMMAND_CENTER_NODE_ID = os.environ.get("LIFELINE_NODE_ID", "000")
 # Active radio reference
 active_radio = None
 
+# LoRa Receiver Connectivity & Hardware Status
+lora_status = {
+    "connected": False,
+    "status": "INITIALIZING",
+    "details": "Starting receiver...",
+    "chip_version": None,
+    "frequency_mhz": 433.0,
+    "mode": "STARTING",
+    "stats": {
+        "rx_total": 0,
+        "tx_total": 0,
+        "crc_errors": 0,
+        "duplicates_suppressed": 0,
+        "last_rx_time": None,
+        "last_tx_time": None,
+    },
+}
+status_lock = threading.Lock()
+
 # node_id -> latest node information
 nodes = {}
 nodes_lock = threading.Lock()
@@ -203,12 +222,12 @@ def handle_lora_message(raw_message: str, radio: LoRa = None):
 
     # Check for ACK packets traveling through mesh
     if "[ACK]" in raw_message and "[SOS]" not in raw_message and not re.search(r"\bSOS\b", raw_message):
-        print(f"[LifeLine] LoRa Mesh ACK packet observed: {raw_message.strip()}")
+        print(f"[LifeLine Mesh] Observed in-transit ACK packet: {raw_message.strip()}")
         return None
 
     parsed = parse_lora_message(raw_message)
     if parsed is None:
-        print(f"[LifeLine] Ignored unrecognised message: {raw_message!r}")
+        print(f"[LifeLine] Ignored unrecognised/non-SOS message: {raw_message!r}")
         return None
 
     message_id = parsed.get("message_id")
@@ -223,10 +242,15 @@ def handle_lora_message(raw_message: str, radio: LoRa = None):
                 if node_chain and node_chain not in entry["chains"]:
                     entry["chains"].append(node_chain)
                 print(
-                    f"[LifeLine] Duplicate SOS detected for message_id '{message_id}' "
-                    f"via chain '{node_chain}' (first seen via '{entry['node_chain']}'). "
-                    "Skipping ACK transmission."
+                    f"\n[LifeLine Mesh] DUPLICATE SOS DETECTED!\n"
+                    f"    Message ID : {message_id}\n"
+                    f"    Origin Node: {parsed['node_id']}\n"
+                    f"    New Chain  : {node_chain}\n"
+                    f"    First Chain: {entry['node_chain']}\n"
+                    f"    Action     : Suppressing duplicate ACK transmission."
                 )
+                with status_lock:
+                    lora_status["stats"]["duplicates_suppressed"] += 1
             else:
                 seen_message_ids[message_id] = {
                     "first_seen": datetime.now(timezone.utc).isoformat(),
@@ -279,65 +303,166 @@ def handle_lora_message(raw_message: str, radio: LoRa = None):
         save_history()
 
     print(
-        f"[LifeLine] {parsed['node_id']} (chain: {node_chain}, msg_id: {message_id}) -> "
-        f"{parsed['latitude']}, {parsed['longitude']} | {parsed['alert']}"
+        f"\n[LifeLine Incident] NEW SOS REGISTERED!\n"
+        f"    Node ID    : {parsed['node_id']}\n"
+        f"    Node Chain : {node_chain}\n"
+        f"    Message ID : {message_id or 'None (Legacy)'}\n"
+        f"    GPS        : {parsed['latitude']}, {parsed['longitude']}\n"
+        f"    Alert Text : {parsed['alert']}\n"
+        f"    Signal     : RSSI {parsed['rssi']} dBm | SNR {parsed['snr']} dB"
     )
 
     # Send ACK back over LoRa mesh if message_id is present
     if message_id:
         if radio is not None:
             # Brief delay so airwaves clear
-            time.sleep(0.1)
+            time.sleep(0.12)
             ack_msg = f"{COMMAND_CENTER_NODE_ID}: [ACK] : {message_id}"
             try:
+                print(f"[LifeLine Mesh] Transmitting ACK packet: {ack_msg!r}")
                 success = radio.send(ack_msg)
                 if success:
                     with seen_lock:
                         if message_id in seen_message_ids:
                             seen_message_ids[message_id]["ack_sent"] = True
-                    print(f"[LifeLine] Sent ACK back to mesh: '{ack_msg}'")
+                    with status_lock:
+                        lora_status["stats"]["tx_total"] += 1
+                        lora_status["stats"]["last_tx_time"] = datetime.now(timezone.utc).isoformat()
+                    print(f"[LifeLine Mesh] ACK successfully dispatched to mesh network: '{ack_msg}'")
                 else:
-                    print(f"[LifeLine] Failed to send ACK: '{ack_msg}'")
+                    print(f"[LifeLine Mesh] Failed to transmit ACK: '{ack_msg}'")
             except Exception as e:
-                print(f"[LifeLine] Error transmitting ACK: {e}")
+                print(f"[LifeLine Mesh] Error transmitting ACK: {e}")
         else:
-            print(f"[LifeLine] Radio not available; recorded ACK event for message_id '{message_id}'")
+            print(f"[LifeLine Mesh] Radio not available; simulated ACK record for message_id '{message_id}'")
 
     return parsed
 
 
 def lora_listener():
+    """Background listener with self-healing reconnect and verbose terminal logs."""
     global active_radio
-    try:
-        radio = LoRa()
-        active_radio = radio
-        radio.start_receive()
-        print(f"[LifeLine] LoRa receiver started (Command Center node ID: {COMMAND_CENTER_NODE_ID}).")
+    last_heartbeat = time.time()
 
-        while True:
-            packet = radio.receive()
+    while True:
+        # Reconnection loop if radio is not active
+        if active_radio is None:
+            try:
+                print("\n" + "=" * 65)
+                print("[LifeLine LoRa] Initializing SX1278 transceiver on Raspberry Pi...")
+                print(f"[LifeLine LoRa] Command Center Node ID: {COMMAND_CENTER_NODE_ID}")
+                radio = LoRa()
+                conn = radio.check_connectivity()
 
-            if packet is not None:
+                with status_lock:
+                    lora_status["connected"] = conn["connected"]
+                    lora_status["status"] = conn["status"]
+                    lora_status["details"] = conn["details"]
+                    lora_status["chip_version"] = conn.get("chip_version")
+                    lora_status["frequency_mhz"] = conn.get("frequency_mhz", 433.0)
+                    lora_status["mode"] = conn.get("mode", "UNKNOWN")
+
+                if conn["connected"]:
+                    active_radio = radio
+                    radio.start_receive()
+                    print("[LifeLine LoRa] SX1278 is ONLINE and actively listening in continuous RX mode!")
+                    print("=" * 65 + "\n")
+                elif radio.is_mock:
+                    active_radio = radio
+                    print("[LifeLine LoRa] Running in SIMULATION mode (mock radio active).")
+                    print("=" * 65 + "\n")
+                else:
+                    print(f"[LifeLine LoRa] [WARNING] Connection check failed: {conn['details']}")
+                    print("[LifeLine LoRa] Retrying hardware detection in 3 seconds...")
+                    time.sleep(3)
+                    continue
+
+            except Exception as exc:
+                with status_lock:
+                    lora_status["connected"] = False
+                    lora_status["status"] = "OFFLINE"
+                    lora_status["details"] = f"Error: {exc}"
+
+                print(f"[LifeLine LoRa] [CRITICAL] Could not initialize SX1278: {exc}")
+                print("[LifeLine LoRa] Please verify the Ra-02 wiring to the Raspberry Pi GPIO headers:")
+                print("    Ra-02 VCC  -> Pi Pin 1  (3.3V)")
+                print("    Ra-02 GND  -> Pi Pin 6  (GND)")
+                print("    Ra-02 SCK  -> Pi Pin 23 (GPIO11 / SPI0 SCLK)")
+                print("    Ra-02 MISO -> Pi Pin 21 (GPIO9  / SPI0 MISO)")
+                print("    Ra-02 MOSI -> Pi Pin 19 (GPIO10 / SPI0 MOSI)")
+                print("    Ra-02 NSS  -> Pi Pin 24 (GPIO8  / SPI0 CE0)")
+                print("    Ra-02 RST  -> Pi Pin 22 (GPIO25)")
+                print("    Ra-02 DIO0 -> Pi Pin 18 (GPIO24)")
+                print("[LifeLine LoRa] Retrying in 3 seconds...\n")
+                time.sleep(3)
+                continue
+
+        # Normal polling loop
+        try:
+            packet = active_radio.receive()
+
+            if packet == ("CRC_ERROR", 0, 0):
+                with status_lock:
+                    lora_status["stats"]["crc_errors"] += 1
+            elif packet is not None:
                 message, rssi, snr = packet
+                iso_now = datetime.now(timezone.utc).isoformat()
+                with status_lock:
+                    lora_status["stats"]["rx_total"] += 1
+                    lora_status["stats"]["last_rx_time"] = iso_now
 
                 full_message = message
                 if "RSSI:" not in full_message.upper():
-                    full_message += f"\nRSSI: {rssi} dBm"
+                    full_message += f"\nRSSI: {rssi:.1f} dBm"
                 if "SNR:" not in full_message.upper():
-                    full_message += f"\nSNR: {snr} dB"
+                    full_message += f"\nSNR: {snr:.2f} dB"
 
-                handle_lora_message(full_message, radio=radio)
+                handle_lora_message(full_message, radio=active_radio)
 
-            time.sleep(0.02)
+            # Periodic heartbeat in terminal every 15 seconds
+            now = time.time()
+            if now - last_heartbeat > 15.0:
+                last_heartbeat = now
+                conn = active_radio.check_connectivity()
+                with status_lock:
+                    lora_status["connected"] = conn["connected"]
+                    lora_status["status"] = conn["status"]
+                    lora_status["details"] = conn["details"]
+                    lora_status["mode"] = conn.get("mode", "UNKNOWN")
+                    rx_cnt = lora_status["stats"]["rx_total"]
+                    tx_cnt = lora_status["stats"]["tx_total"]
+                    crc_cnt = lora_status["stats"]["crc_errors"]
+                    dup_cnt = lora_status["stats"]["duplicates_suppressed"]
 
-    except Exception as exc:
-        print(f"[LifeLine] LoRa listener stopped: {exc}")
-        print("[LifeLine] Check SPI, wiring, antenna and Lora.py configuration.")
+                print(
+                    f"[LoRa RX Heartbeat] Status: {conn['status']} | "
+                    f"Mode: {conn.get('mode', 'N/A')} | "
+                    f"Freq: {conn.get('frequency_mhz', 433):.2f}MHz | "
+                    f"RX: {rx_cnt} | TX(ACK): {tx_cnt} | Duplicates: {dup_cnt} | CRC Errors: {crc_cnt}"
+                )
+
+                if not conn["connected"] and not active_radio.is_mock:
+                    print("[LifeLine LoRa] Lost SPI connection to SX1278! Entering reconnect sequence...")
+                    active_radio = None
+
+        except Exception as loop_exc:
+            print(f"[LifeLine LoRa] Error in listener loop: {loop_exc}")
+            active_radio = None
+            time.sleep(2)
+
+        time.sleep(0.02)
 
 
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.get("/api/status")
+def api_status():
+    """Return real-time LoRa module connectivity and stats."""
+    with status_lock:
+        return jsonify(lora_status)
 
 
 @app.get("/api/nodes")
