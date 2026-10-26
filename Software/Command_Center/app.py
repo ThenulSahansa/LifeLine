@@ -5,6 +5,14 @@ import re
 import json
 import os
 from datetime import datetime, timezone
+import RPi.GPIO as GPIO
+
+LED_YELLOW = 21
+LED_GREEN = 13
+
+GPIO.setup(LED_GREEN, GPIO.OUT)
+GPIO.setup(LED_YELLOW, GPIO.OUT)
+
 
 try:
     from Lora import LoRa
@@ -311,6 +319,7 @@ def handle_lora_message(raw_message: str, radio: LoRa = None):
         f"    Alert Text : {parsed['alert']}\n"
         f"    Signal     : RSSI {parsed['rssi']} dBm | SNR {parsed['snr']} dB"
     )
+
 
     # Send ACK back over LoRa mesh if message_id is present
     if message_id:
